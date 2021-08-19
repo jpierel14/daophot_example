@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import sys, os,re,math
+sys.path.append(os.path.join(os.environ['PIPE_SRC'],'pythonscripts'))
 import optparse
 import numpy as np
 import scipy
@@ -1295,6 +1296,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                               niters=5, fitshape=[int(self.aprad*self.fwhm - 1)]*2, aperture_radius=self.aprad, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         result = phot(self.image)
+        result.write('test_phot.dat',format='ascii')
         residual_image = phot.get_residual_image()
         plt.figure(figsize=(14, 14))
 
