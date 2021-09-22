@@ -37,6 +37,7 @@ from astropy.table import Table
 from photutils.detection import DAOStarFinder
 from photutils import EPSFBuilder, GriddedPSFModel
 from photutils.psf import DAOGroup, extract_stars, IterativelySubtractedPSFPhotometry
+import pickle
 
 def display_psf_grid(grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     """ Display a PSF grid in a pair of plots
@@ -573,6 +574,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                         'CXX_IMAGE':sextable.CXX_IMAGE[cols],
                         'CXY_IMAGE':sextable.CXY_IMAGE[cols],
                         'CYY_IMAGE':sextable.CYY_IMAGE[cols]}
+
+        pickle.dump(self.sexdict,open('sex_output.pkl','wb'))
 
     def getPSF(self,
                psfstarlist=None,gain=None,
@@ -1421,9 +1424,18 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
 
         # Run SExtractor to get star parameters
-        self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
+        #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
+        self.sexdict = pickle.load(open('sex_output.pkl','rb'))
 
+        # creates self.psf_model and self.fitted_phot
+        # 
         self.doPhotutilsePSF(psfstarlist)
+
+
+        self.phot_dict = self.create_photutils_dict()
+        self.writetofile(phot_dict)
+        sys.exit()
+
         self.doPhotutilsDAO(psfstarlist)
         # get PSF
         self.getPSF(psfstarlist,gain=gain,inputpsf=self.inputpsf,outputpsffilename=self.fittedpsffilename)
