@@ -695,17 +695,17 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             #plt.show()
             #sys.exit()
             
-            print('X and Y of PSF stars') 
-            print(xpsf,ypsf)
+            #print('X and Y of PSF stars') 
+            #print(xpsf,ypsf)
 	    
             fitrad = self.aprad*self.fwhm - 1
             if fitrad >= self.psfrad: fitrad=self.psfrad-1
 	    
-            print('Fitting radius:') 
-            print(fitrad)
-            print(len(xpsf))
+            #print('Fitting radius:') 
+            #print(fitrad)
+            #print(len(xpsf))
 	    
-            print(outputpsffilename)
+            #print(outputpsffilename)
 	        
             
             if psf_method == 'ePSF':
@@ -729,7 +729,16 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                            self.psfrad,fitrad,
                            outputpsffilename)
 
-
+                print(self.gauss)
+                #from astropy.modeling.models import Gaussian2D
+                #mod = Gaussian2D(self.gauss[0],self.gauss[1],self.gauss[2],
+                #    self.gauss[3],self.gauss[4])
+                #fig,ax = plt.subplots(1,2)
+                #ax[0].imshow(self.psf)
+                
+                #ax[1].imshow
+                #plt.show()
+                #sys.exit()
             #norm = simple_norm(self.psf, 'sqrt', percent=99.)
             
             #ax[1].imshow(self.psf, norm=norm, origin='lower', cmap='viridis')
@@ -1112,6 +1121,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, progress_bar=True)    
         create_grid=True
+        do_plot = False
         if create_grid:
             # Create an array to fill ([i, y, x])
             psf_size = self.psfrad * self.oversample
@@ -1159,8 +1169,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 meta["DET_YX{}".format(h)] = (str((loc[1], loc[0])),
                                               "The #{} PSF's (y,x) detector pixel position".format(h))
             epsf_model = self.to_model(psf_arr, meta)
-            display_psf_grid(epsf_model)
-            plt.show()
+            if do_plot:
+                display_psf_grid(epsf_model)
+                plt.show()
             
         else:
             #epsf_builder = EPSFBuilder(oversampling=oversample, maxiters=iters, progress_bar=True)
@@ -1187,7 +1198,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
         found_stars = find_stars(self.image, self.fwhm,threshold=10, var_bkg=False)
         plot1 = False
-
+        plot2 = False
         sh_inf = 0.2
         sh_sup = 0.6
         mag_lim = 0.0
@@ -1299,38 +1310,59 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                               niters=5, fitshape=[int(self.aprad*self.fwhm - 1)]*2, aperture_radius=self.aprad, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         result = phot(self.image)
-        result.write('test_phot.dat',format='ascii')
+        result.write('test_phot.dat',format='ascii',overwrite=True)
+
+
+        #added to create output similar to daophot.py
+        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,2,5,10),delimiter=' ',skiprows=1)
+        fluxerr=fluxerr.astype('str') 
+        dummylist=[0]*len(xfit)
+
+        fout = open('outputcat','w')
+        print ('#X Y flux fluxerror type peakval sigx sigxy sigy sky chisqr apphot apphoterr',file=fout)
+        for i in range(len(xfit)):
+                    print("%.3f  %.3f  %.3f  %s  %s  %i  %i  %i  %i  %i  %i  %i  %i"%(
+                        xfit[i],yfit[i],
+                        fluxfit[i],fluxerr[i],
+                        dummylist[i],dummylist[i],
+                        dummylist[i],dummylist[i],dummylist[i],
+                        dummylist[i],
+                        dummylist[i],dummylist[i],
+                        dummylist[i]), file=fout)
+        fout.close()
+
         residual_image = phot.get_residual_image()
-        plt.figure(figsize=(14, 14))
+        if plot2:
+            plt.figure(figsize=(14, 14))
 
-        ax1 = plt.subplot(1, 2, 1)
+            ax1 = plt.subplot(1, 2, 1)
 
-        plt.xlabel("X [px]", fontdict=font2)
-        plt.ylabel("Y [px]", fontdict=font2)
+            plt.xlabel("X [px]", fontdict=font2)
+            plt.ylabel("Y [px]", fontdict=font2)
 
-        norm = simple_norm(self.image, 'sqrt', percent=99.)
-        ax1.imshow(self.image, norm=norm, cmap='Greys')
+            norm = simple_norm(self.image, 'sqrt', percent=99.)
+            ax1.imshow(self.image, norm=norm, cmap='Greys')
 
-        ax2 = plt.subplot(1, 2, 2)
+            ax2 = plt.subplot(1, 2, 2)
 
-        plt.xlabel("X [px]", fontdict=font2)
-        plt.ylabel("Y [px]", fontdict=font2)
-        plt.title('residuals', fontdict=font2)
+            plt.xlabel("X [px]", fontdict=font2)
+            plt.ylabel("Y [px]", fontdict=font2)
+            plt.title('residuals', fontdict=font2)
 
-        norm = simple_norm(self.image, 'sqrt', percent=99.)
-        ax2.imshow(residual_image, norm=norm, cmap='Greys')
+            norm = simple_norm(self.image, 'sqrt', percent=99.)
+            ax2.imshow(residual_image, norm=norm, cmap='Greys')
 
-        plt.show()
+            plt.show()
 
-        sys.exit()
-        plt.figure(figsize=(12, 12))
+            sys.exit()
+            plt.figure(figsize=(12, 12))
 
-        ax = plt.subplot(1, 1, 1)
+            ax = plt.subplot(1, 1, 1)
 
-        norm_epsf = simple_norm(epsf.data, 'log', percent=99.)
-        ax.imshow(epsf.data, norm=norm_epsf)
-        plt.tight_layout()
-        plt.show()
+            norm_epsf = simple_norm(epsf.data, 'log', percent=99.)
+            ax.imshow(epsf.data, norm=norm_epsf)
+            plt.tight_layout()
+            plt.show()
         sys.exit()
     def doPhotutilsDAO(self,psfstarlist):
         import photutils
@@ -1373,11 +1405,11 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(self.image-np.median(self.image),
         #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
-        psf_model = photutils.psf.IntegratedGaussianPRF(sigma=5.0)
+        psf_model = photutils.psf.IntegratedGaussianPRF(sigma=3.0)
         psf_model.sigma.fixed = False
         bkg = photutils.background.MMMBackground()
         thresh = 2.5*bkg(self.image-np.median(self.image))
-        photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,self.fwhm,psf_model,int((self.psfrad-1)/2),niters=5)
+        photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2)
         result_tab = photometry(image=self.image-np.median(self.image))
         residual_image = photometry.get_residual_image()
         norm = simple_norm(residual_image, 'sqrt', percent=99.)
@@ -1396,7 +1428,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         """The main routine.  Loads/creates a PSF model, and
         performs PSF fitting on an input list or SExtractor
         detections."""
-
+        method = 'photutils_dao'
         if self.verbose>1:
             print('Removing ',outputcat)
         os.system('rm %s'%outputcat)
@@ -1429,14 +1461,18 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         # creates self.psf_model and self.fitted_phot
         # 
-        self.doPhotutilsePSF(psfstarlist)
+        if method == 'photutils_psf':
+            self.doPhotutilsePSF(psfstarlist)
 
 
-        self.phot_dict = self.create_photutils_dict()
-        self.writetofile(phot_dict)
-        sys.exit()
+            self.phot_dict = self.create_photutils_dict()
+            self.writetofile(phot_dict)
+            sys.exit()
+        elif method == 'photutils_dao':
 
-        self.doPhotutilsDAO(psfstarlist)
+            self.doPhotutilsDAO(psfstarlist)
+            sys.exit()
+    
         # get PSF
         self.getPSF(psfstarlist,gain=gain,inputpsf=self.inputpsf,outputpsffilename=self.fittedpsffilename)
 
