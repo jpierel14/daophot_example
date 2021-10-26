@@ -1101,7 +1101,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
     def build_epsf(self, size=11, found_table=None, oversample=4, iters=10,create_grid=False):
         self.oversample=4
-        self.num_psfs = 16
+        self.num_psfs = 9
         data = self.image
 
         hsize = (size - 1) / 2
@@ -1121,7 +1121,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, progress_bar=True)    
         create_grid=True
-        do_plot = False
+        do_plot = True
         if create_grid:
             # Create an array to fill ([i, y, x])
             psf_size = self.psfrad * self.oversample
@@ -1428,7 +1428,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         """The main routine.  Loads/creates a PSF model, and
         performs PSF fitting on an input list or SExtractor
         detections."""
-        method = 'photutils_dao'
+        method = 'photutils_psf'
         if self.verbose>1:
             print('Removing ',outputcat)
         os.system('rm %s'%outputcat)
@@ -1457,8 +1457,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         # Run SExtractor to get star parameters
         #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
-        self.sexdict = pickle.load(open('sex_output.pkl','rb'))
-
+        self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
+        self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
         # creates self.psf_model and self.fitted_phot
         # 
         if method == 'photutils_psf':
