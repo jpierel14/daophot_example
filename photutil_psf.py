@@ -254,7 +254,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                           help='right ascension of the object.  If provided, this is for local PSF computation (default=%default)')
         parser.add_option('--ObjDec'  , default=None, type="float",
                           help='declination of the object.  If provided, this is for local PSF computation (default=%default)')
-        
+        parser.add_option('--psfRoutine'  , default='daopy', type="str",
+                          help='Choice of fitting routine (daopy, dao, epsf)')
 
         return(parser)
 
@@ -1464,7 +1465,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         """The main routine.  Loads/creates a PSF model, and
         performs PSF fitting on an input list or SExtractor
         detections."""
-        method = 'photutils_dao'#'photutils_dao'
+        method = dao.psfRoutine
+        
         if self.verbose>1:
             print('Removing ',outputcat)
         os.system('rm %s'%outputcat)
@@ -1497,14 +1499,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
         # creates self.psf_model and self.fitted_phot
         # 
-        if method == 'photutils_psf':
+        if method == 'epsf':
             self.doPhotutilsePSF(psfstarlist)
 
 
             self.phot_dict = self.create_photutils_dict()
             self.writetofile(phot_dict)
             sys.exit()
-        elif method == 'photutils_dao':
+        elif method == 'dao':
 
             self.doPhotutilsDAO(psfstarlist)
             sys.exit()
@@ -1601,7 +1603,7 @@ if __name__=='__main__':
 
     (imagefilename,outputcat)=args
 
-
+    dao.psfRoutine = options.psfRoutine
     dao.verbose = options.verbose
     dao.debug = options.debug
 
