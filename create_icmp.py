@@ -51,4 +51,4 @@ def convert_to_icmp(phot_output):
 
 
 
-convert_to_icmp(Table.read('outputcat_photutils',format='ascii'))
+convert_to_icmp(Table.read('outputcat_dao',format='ascii'))

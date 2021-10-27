@@ -1106,9 +1106,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         hsize = (size - 1) / 2
         
-        x = self.brightx#found_table['xcentroid']
-        y = self.brighty#found_table['ycentroid']
-        
+        x = self.sexdict['x']#self.brightx#found_table['xcentroid']
+        y = self.sexdict['y']#self.brighty#found_table['ycentroid']
+        print(len(x))
         mask = ((x > hsize) & (x < (data.shape[1] - 1 - hsize)) & (y > hsize) & (y < (data.shape[0] - 1 - hsize)))
         import astropy
         stars_tbl = Table()
@@ -1121,7 +1121,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, progress_bar=True)    
         create_grid=True
-        do_plot = True
+        do_plot = False
         if create_grid:
             # Create an array to fill ([i, y, x])
             psf_size = self.psfrad * self.oversample
@@ -1301,7 +1301,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         mmm_bkg = MMMBackground()
         _,std = calc_bkg(self.image)
         th=10
-        daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm)
+        daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
+            xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
         
         daogroup = DAOGroup(5.0 * self.fwhm)
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
@@ -1406,11 +1407,46 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(self.image-np.median(self.image),
         #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
         psf_model = photutils.psf.IntegratedGaussianPRF(sigma=3.0)
-        psf_model.sigma.fixed = False
+        #psf_model.sigma.fixed = False
+        fitter = LevMarLSQFitter()
+        _,std = calc_bkg(self.image)
+        th=10
+        print('sexdict:',len(self.sexdict['x']))
+        daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
+            xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
+        
+        daogroup = DAOGroup(5.0 * self.fwhm)
         bkg = photutils.background.MMMBackground()
-        thresh = 2.5*bkg(self.image-np.median(self.image))
-        photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2)
-        result_tab = photometry(image=self.image-np.median(self.image))
+        #thresh = 2.5*bkg(self.image-np.median(self.image))
+        #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
+        #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
+        #    xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
+        phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
+                                              bkg_estimator=bkg, psf_model=psf_model,
+                                              fitter=fitter,
+                                              niters=10, fitshape=[int(self.aprad*self.fwhm - 1)]*2, 
+                                              aperture_radius=self.aprad, 
+                                              extra_output_cols=('sharpness', 'roundness2'))
+        result_tab = phot(self.image)#-np.median(self.image))
+        print(len(result_tab))
+        result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
+        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,2,5,10),delimiter=' ',skiprows=1)
+        fluxerr=fluxerr.astype('str') 
+        dummylist=[0]*len(xfit)
+
+        fout = open('outputcat_dao','w')
+        print ('#X Y flux fluxerror type peakval sigx sigxy sigy sky chisqr apphot apphoterr',file=fout)
+        for i in range(len(xfit)):
+                    print("%.3f  %.3f  %.3f  %s  %s  %i  %i  %i  %i  %i  %i  %i  %i"%(
+                        xfit[i],yfit[i],
+                        fluxfit[i],fluxerr[i],
+                        dummylist[i],dummylist[i],
+                        dummylist[i],dummylist[i],dummylist[i],
+                        dummylist[i],
+                        dummylist[i],dummylist[i],
+                        dummylist[i]), file=fout)
+        fout.close()
+        sys.exit()
         residual_image = photometry.get_residual_image()
         norm = simple_norm(residual_image, 'sqrt', percent=99.)
         plt.imshow(residual_image, norm=norm, origin='lower', cmap='viridis')
@@ -1428,7 +1464,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         """The main routine.  Loads/creates a PSF model, and
         performs PSF fitting on an input list or SExtractor
         detections."""
-        method = 'photutils_psf'
+        method = 'photutils_dao'#'photutils_dao'
         if self.verbose>1:
             print('Removing ',outputcat)
         os.system('rm %s'%outputcat)
