@@ -557,7 +557,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         elif len(xe): flags[xe] = 1
 
         # Centroid those stars?
-        xcen,ycen = cntrd.cntrd(self.image,sextable.X_IMAGE-1,sextable.Y_IMAGE-1,fwhmact)  #recenter on psf star
+        xcen,ycen = sextable.X_IMAGE,sextable.Y_IMAGE#cntrd.cntrd(self.image,sextable.X_IMAGE-1,sextable.Y_IMAGE-1,fwhmact)  #recenter on psf star
         cols = np.where((sextable.FLUX_AUTO == sextable.FLUX_AUTO) &
                         (xcen != -1) &
                         (ycen != -1) &
@@ -1413,11 +1413,12 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         _,std = calc_bkg(self.image)
         th=10
         print('sexdict:',len(self.sexdict['x']))
+        from astropy.stats import SigmaClip
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
             xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
         
         daogroup = DAOGroup(5.0 * self.fwhm)
-        bkg = photutils.background.MMMBackground()
+        bkg = photutils.background.MMMBackground(sigma_clip=SigmaClip(sigma=5))
         #thresh = 2.5*bkg(self.image-np.median(self.image))
         #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
         #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
@@ -1426,12 +1427,13 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
                                               niters=10, fitshape=[int(self.aprad*self.fwhm - 1)]*2, 
-                                              aperture_radius=self.aprad, 
+                                              aperture_radius=2*self.aprad, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         result_tab = phot(self.image)#-np.median(self.image))
-        print(len(result_tab))
+        
         result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
         xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,2,5,10),delimiter=' ',skiprows=1)
+        print('result:',np.median(fluxfit))
         fluxerr=fluxerr.astype('str') 
         dummylist=[0]*len(xfit)
 
@@ -1466,7 +1468,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         performs PSF fitting on an input list or SExtractor
         detections."""
         method = dao.psfRoutine
-        
+
         if self.verbose>1:
             print('Removing ',outputcat)
         os.system('rm %s'%outputcat)
@@ -1495,6 +1497,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         # Run SExtractor to get star parameters
         #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
+        self.runsex('2018hyz.i.ut181124.1129_stch_1.sw.fits',None,None,sexstring)
+        sys.exit()
         self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
         # creates self.psf_model and self.fitted_phot
