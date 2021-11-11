@@ -1304,23 +1304,35 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         th=10
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
             xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
-        
+
+        # epsf.x_0.fixed = True  #this seems to make the epsf photometry worse
+        # epsf.y_0.fixed = True
+
+        sources = Table()
+
+        sources['x_mean'] = self.sexdict['x']
+        sources['y_mean'] = self.sexdict['y']
+
+        pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
+        print (pos)
+
+
         daogroup = DAOGroup(5.0 * self.fwhm)
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=mmm_bkg, psf_model=epsf,
                                               fitter=fitter,
                                               niters=5, fitshape=[int(self.aprad*self.fwhm - 1)]*2, aperture_radius=self.aprad, 
                                               extra_output_cols=('sharpness', 'roundness2'))
-        result = phot(self.image)
+        result = phot(self.image,init_guesses=pos)
         result.write('test_phot.dat',format='ascii',overwrite=True)
 
 
         #added to create output similar to daophot.py
-        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,2,5,10),delimiter=' ',skiprows=1)
+        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
         fluxerr=fluxerr.astype('str') 
         dummylist=[0]*len(xfit)
 
-        fout = open('outputcat','w')
+        fout = open('outputcat_photutils','w')
         print ('#X Y flux fluxerror type peakval sigx sigxy sigy sky chisqr apphot apphoterr',file=fout)
         for i in range(len(xfit)):
                     print("%.3f  %.3f  %.3f  %s  %s  %i  %i  %i  %i  %i  %i  %i  %i"%(
@@ -1418,6 +1430,19 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         daogroup = DAOGroup(5.0 * self.fwhm)
         bkg = photutils.background.MMMBackground()
+
+        psf_model.x_0.fixed = True
+        psf_model.y_0.fixed = True
+
+        sources = Table()
+
+        sources['x_mean'] = self.sexdict['x']
+        sources['y_mean'] = self.sexdict['y']
+        # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
+
+        pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
+        print (pos)
+
         #thresh = 2.5*bkg(self.image-np.median(self.image))
         #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
         #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
@@ -1428,10 +1453,11 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                               niters=10, fitshape=[int(self.aprad*self.fwhm - 1)]*2, 
                                               aperture_radius=self.aprad, 
                                               extra_output_cols=('sharpness', 'roundness2'))
-        result_tab = phot(self.image)#-np.median(self.image))
+ 
+        result_tab = phot(self.image,init_guesses=pos)#-np.median(self.image))
         print(len(result_tab))
         result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
-        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,2,5,10),delimiter=' ',skiprows=1)
+        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
         fluxerr=fluxerr.astype('str') 
         dummylist=[0]*len(xfit)
 
