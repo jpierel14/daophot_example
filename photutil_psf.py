@@ -444,6 +444,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         for b in bright:
             coords0,coords1 = \
                 self.sexdict_psfstars['x'][b].astype(int),self.sexdict_psfstars['y'][b].astype(int)
+
+
             n1,n2,n3,n4 = coords1-14,coords1+15,coords0-14,coords0+15
             if n1 < 0: n1 = 0
             if n3 < 0: n3 = 0
@@ -1427,7 +1429,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         print('sexdict:',len(self.sexdict['x']))
         from astropy.stats import SigmaClip
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
-            xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
+            xycoords=np.array([xpsf,ypsf]).T)
+            #xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
         
         daogroup = DAOGroup(5.0 * self.fwhm)
 
@@ -1438,8 +1441,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         sources = Table()
 
-        sources['x_mean'] = self.sexdict['x']
-        sources['y_mean'] = self.sexdict['y']
+        sources['x_mean'] = xpsf#self.sexdict['x']
+        sources['y_mean'] = ypsf#self.sexdict['y']
         # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
 
         pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
@@ -1524,8 +1527,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         # Run SExtractor to get star parameters
         #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
-        self.runsex('2018hyz.i.ut181124.1129_stch_1.sw.fits',None,None,sexstring)
-        sys.exit()
+        #self.runsex('2018hyz.i.ut181124.1129_stch_1.sw.fits',None,None,sexstring)
+        #sys.exit()
         self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
         # creates self.psf_model and self.fitted_phot
