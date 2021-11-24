@@ -675,7 +675,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             stars_tbl['x'] = x[mask]  
             stars_tbl['y'] = y[mask]   
             nddata = NDData(data=data)  
-            stars = extract_stars(nddata, stars_tbl,size=size)  
+            stars =  stars(nddata, stars_tbl,size=size)  
 
             # ig, ax = plt.subplots(nrows=5, ncols=5, figsize=(20, 20),
             #             squeeze=True)
@@ -1103,26 +1103,27 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         return model
 
     def build_epsf(self, size=11, found_table=None, oversample=4, iters=10,create_grid=False):
-        self.oversample=4
+        self.oversample=oversample
         self.num_psfs = 4
         data = self.image
 
         hsize = (size - 1) / 2
         
-        x = self.brightx#self.sexdict['x']#self.brightx#found_table['xcentroid']
-        y = self.brighty#self.sexdict['y']#self.brighty#found_table['ycentroid']
+        x = found_table['x_mean']#self.brightx#self.sexdict['x']#self.brightx#found_table['xcentroid']
+        y = found_table['y_mean']#self.brighty#self.sexdict['y']#self.brighty#found_table['ycentroid']
         print(len(x))
-        mask = ((x > hsize) & (x < (data.shape[1] - 1 - hsize)) & (y > hsize) & (y < (data.shape[0] - 1 - hsize)))
-        import astropy
+        #mask = ((x > hsize) & (x < (data.shape[1] - 1 - hsize)) & (y > hsize) & (y < (data.shape[0] - 1 - hsize)))
+        #import astropy
         stars_tbl = Table()
-        stars_tbl['x'] = x[mask]
-        stars_tbl['y'] = y[mask]
+        stars_tbl['x'] = x#[mask]
+        stars_tbl['y'] = y#[mask]
         
         data_bkgsub, _ = calc_bkg(data)
         
         nddata = NDData(data=data_bkgsub)
         
-        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, progress_bar=True)    
+        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, norm_radius=35,
+            progress_bar=True)    
         #create_grid=creat
         do_plot = False
         if create_grid:
@@ -1177,7 +1178,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 plt.show()
             
         else:
-            #epsf_builder = EPSFBuilder(oversampling=oversample, maxiters=iters, progress_bar=True)
+            #epsf_builder = EPSFBuilder(oversampling=oversample, maxiters=iters, progress_bar=True)'
+
+            print(size,len(stars_tbl))
             stars = extract_stars(nddata, stars_tbl, size=size)
             epsf_model, fitted_stars = epsf_builder(stars)
         
@@ -1397,9 +1400,20 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         if self.verbose:
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
-        good_inds = [-2,-7,-8,-13,20]
-        #xpsf,ypsf = self.brightx[good_inds],self.brighty[good_inds]
-        xpsf,ypsf = self.brightx,self.brighty
+        small_inds = [-2,-7,-8,-13,20]
+        big_inds = [0,7,8,11,13]
+        good_inds = big_inds
+        xpsf,ypsf = self.brightx[good_inds],self.brighty[good_inds]
+        sources = Table()
+        
+        sources['x_mean'] = xpsf#self.sexdict['x']
+        sources['y_mean'] = ypsf#self.sexdict['y']
+
+        # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
+
+        pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
+        print (pos)
+        #xpsf,ypsf = self.brightx,self.brighty
 
         from PythonPhot import aper
         # bright star aperture magnitudes
@@ -1423,8 +1437,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(self.image-np.median(self.image),
         #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
-        psf_model = photutils.psf.IntegratedGaussianPRF(sigma=2.0)
-        #psf_model = self.build_epsf(size=self.psfrad, found_table=None, oversample=4, iters=10)
+        #psf_model = photutils.psf.IntegratedGaussianPRF(sigma=5.0)
+        psf_model = self.build_epsf(size=55, found_table=sources, oversample=12, iters=20)
+        psf_model.x_0.fixed = True
+        psf_model.y_0.fixed = True
         #psf_model.sigma.fixed = False
         fitter = LevMarLSQFitter()
         _,std = calc_bkg(self.image)
@@ -1440,30 +1456,22 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         bkg = photutils.background.MMMBackground()
 
-        psf_model.x_0.fixed = True
-        psf_model.y_0.fixed = True
-
-        sources = Table()
         
-        sources['x_mean'] = xpsf#self.sexdict['x']
-        sources['y_mean'] = ypsf#self.sexdict['y']
 
-        # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
-
-        pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
-        print (pos)
+        
 
         #thresh = 2.5*bkg(self.image-np.median(self.image))
         #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
         #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
         #    xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
-        fitshape = int(self.aprad*self.fwhm - 1)*2
+        fitshape = 2.5*int(self.aprad*self.fwhm - 1)*2
         if fitshape%2==0:
             fitshape+=1
+
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
-                                              niters=10, fitshape=[fitshape]*2, 
+                                              niters=1, fitshape=[fitshape]*2, 
                                               aperture_radius=10, 
                                               extra_output_cols=('sharpness', 'roundness2'))
 
