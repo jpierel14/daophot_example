@@ -21,7 +21,7 @@ if 'PIPE_PYTHONSCRIPTS' in os.environ:
 from PythonPhot import djs_angle_match
 from photutils.psf import IntegratedGaussianPRF, DAOGroup
 from photutils.background import MMMBackground, MADStdBackgroundRMS
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import *
 from astropy.stats import gaussian_sigma_to_fwhm
 from photutils.psf import IterativelySubtractedPSFPhotometry
 from photutils.datasets import load_simulated_hst_star_image
@@ -1102,9 +1102,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         return model
 
-    def build_epsf(self, size=11, found_table=None, oversample=4, iters=10,create_grid=False):
+    def build_epsf(self, size=11, found_table=None, oversample=4, iters=10,norm_radius=10,
+        create_grid=False,npsf=9):
         self.oversample=oversample
-        self.num_psfs = 4
+        self.num_psfs = npsf
         data = self.image
 
         hsize = (size - 1) / 2
@@ -1122,25 +1123,32 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         nddata = NDData(data=data_bkgsub)
         
-        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters, norm_radius=35,
+        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters,norm_radius=norm_radius,recentering_boxsize=8,recentering_maxiters=20,
             progress_bar=True)    
         #create_grid=creat
         do_plot = False
         if create_grid:
+            from photutils.psf import GriddedPSFModel
+            import astropy
             # Create an array to fill ([i, y, x])
-            psf_size = self.psfrad * self.oversample
+            psf_size = size#self.psfrad * self.oversample
             
             self.location_list = self._set_psf_locations(self.num_psfs)
-            psf_arr = np.empty((int(self.length**2), int(psf_size)+1, int(psf_size)+1))
+            psf_arr = None 
             
             kernel = astropy.convolution.Box2DKernel(width=self.oversample)
             n=0
             m=0
+            meta = {'oversampling': self.oversample, 'grid_xypos': []}
+
             for i, loc in enumerate(self.location_list):
                 if i%self.length<m:
                     n+=1
                 m = i%self.length
                 print(i,n,m)
+                xp = ((m+1)*self.image.shape[1]/self.length+m*self.image.shape[1]/self.length)/2
+                yp = ((n+1)*self.image.shape[0]/self.length+n*self.image.shape[0]/self.length)/2
+                meta['grid_xypos'].append((xp,yp))
                 temp_star_tbl = stars_tbl[np.where(np.logical_and(np.logical_and((m+1)*self.image.shape[1]/self.length>=stars_tbl['x'],
                                                                                     stars_tbl['x']>=m*self.image.shape[1]/self.length),
                                                                     np.logical_and((n+1)*self.image.shape[0]/self.length>=stars_tbl['y'],
@@ -1154,12 +1162,17 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 #ax.scatter(temp_star_tbl['x'],temp_star_tbl['y'])
                 #plt.show()
                 
-                stars = extract_stars(nddata, temp_star_tbl, size=self.psfrad)
+                stars = extract_stars(nddata, temp_star_tbl, size=size)
                 epsf, fitted_stars = epsf_builder(stars)                
+                #meta['grid_xypos'].append((np.mean(temp_star_tbl['x']),np.mean(temp_star_tbl['y'])))
                 #psf_conv = astropy.convolution.convolve(epsf.data, kernel)
+                if psf_arr is None:
+                    psf_arr = np.empty((int(self.length**2), int(epsf.data.shape[0]), 
+                        int(epsf.data.shape[1])))
+
                 psf_arr[i, :, :] = epsf.data
             psf_arr *= self.oversample**2
-            meta = {}
+            
             meta["NUM_PSFS"] = (self.num_psfs, "The total number of fiducial PSFs")
             meta["OVERSAMP"] = (self.oversample, "Oversampling factor for FFTs in computation")
             for h, loc in enumerate(self.location_list):  # these were originally written out in (x,y)
@@ -1172,7 +1185,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
                 meta["DET_YX{}".format(h)] = (str((loc[1], loc[0])),
                                               "The #{} PSF's (y,x) detector pixel position".format(h))
-            epsf_model = self.to_model(psf_arr, meta)
+            epsf_model = GriddedPSFModel(NDData(psf_arr, meta=meta))#self.to_model(psf_arr, meta)
             if do_plot:
                 display_psf_grid(epsf_model)
                 plt.show()
@@ -1180,10 +1193,20 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         else:
             #epsf_builder = EPSFBuilder(oversampling=oversample, maxiters=iters, progress_bar=True)'
 
-            print(size,len(stars_tbl))
+            print(size,stars_tbl)
             stars = extract_stars(nddata, stars_tbl, size=size)
+            #fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(20, 20),
+            #            squeeze=True)
+            #ax = ax.ravel()
+            #for i in range(4):
+            #    norm = simple_norm(stars[i], 'log', percent=99.)
+            #    ax[i].imshow(stars[i], norm=norm, origin='lower', cmap='viridis')
+            #plt.show()
             epsf_model, fitted_stars = epsf_builder(stars)
-        
+            #norm = simple_norm(epsf_model.data, 'log', percent=99.)
+            #plt.imshow(epsf_model.data, norm=norm, origin='lower', cmap='viridis')
+            #plt.show()
+            
         return epsf_model
 
 
@@ -1401,13 +1424,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         if self.verbose:
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
         small_inds = [-2,-7,-8,-13,20]
-        big_inds = [0,7,8,11,13]
-        good_inds = big_inds
-        xpsf,ypsf = self.brightx[good_inds],self.brighty[good_inds]
+        big_inds = [7,8,11,13]#0,]
+        all_inds = np.arange(0,len(self.brightx),1)
+        good_inds = all_inds
+        xpsf,ypsf = np.array(self.brightx[good_inds]),np.array(self.brighty[good_inds])
         sources = Table()
         
-        sources['x_mean'] = xpsf#self.sexdict['x']
-        sources['y_mean'] = ypsf#self.sexdict['y']
+        sources['x_mean'] = self.sexdict['x'] #xpsf#
+        sources['y_mean'] = self.sexdict['y'] #ypsf
 
         # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
 
@@ -1419,30 +1443,34 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         # bright star aperture magnitudes
         skyrad = [self.skyrad*self.fwhm, (self.skyrad+3.0)*self.fwhm]
 
-        apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag,outstr = aper.aper(
-            self.image,xpsf,ypsf,
-            phpadu=self.gain,apr=self.aprad*self.fwhm,
-            skyrad=skyrad,
-            badpix=[self.minpixval,self.saturation],
-            verbose=False)
-        # Remove those bad stars
-        goodphotcols = np.where(badflag == 0)[0]
-        magcols = np.argsort(apmag[goodphotcols].reshape(goodphotcols.size))
+        # apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag,outstr = aper.aper(
+        #     self.image,xpsf,ypsf,
+        #     phpadu=self.gain,apr=self.aprad*self.fwhm,
+        #     skyrad=skyrad,
+        #     badpix=[self.minpixval,self.saturation],
+        #     verbose=False)
+        # # Remove those bad stars
+        # goodphotcols = np.where(badflag == 0)[0]
+        # magcols = np.argsort(apmag[goodphotcols].reshape(goodphotcols.size))
         
-        apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag = \
-            apmag[goodphotcols][magcols],apmagerr[goodphotcols][magcols],flux[goodphotcols][magcols],\
-            fluxerr[goodphotcols][magcols],sky[goodphotcols][magcols],skyerr[goodphotcols][magcols],\
-            badflag[goodphotcols][magcols]
-        xpsf,ypsf = xpsf[goodphotcols][magcols],ypsf[goodphotcols][magcols]
+        # apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag = \
+        #     apmag[goodphotcols][magcols],apmagerr[goodphotcols][magcols],flux[goodphotcols][magcols],\
+        #     fluxerr[goodphotcols][magcols],sky[goodphotcols][magcols],skyerr[goodphotcols][magcols],\
+        #     badflag[goodphotcols][magcols]
+        # xpsf,ypsf = xpsf[goodphotcols][magcols],ypsf[goodphotcols][magcols]
 
-        #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(self.image-np.median(self.image),
+        #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(calc_bkg(self.image)[0],
         #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
         #psf_model = photutils.psf.IntegratedGaussianPRF(sigma=5.0)
-        psf_model = self.build_epsf(size=55, found_table=sources, oversample=12, iters=20)
-        psf_model.x_0.fixed = True
-        psf_model.y_0.fixed = True
+        fitter = LevMarLSQFitter()#SLSQPLSQFitter()
+        oversample_rate = 1
+        epsf_size = 40
+        psf_model = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
+            iters=20,norm_radius=2*self.aprad*self.fwhm,npsf=16,create_grid=True)
+        #psf_model.x_0.fixed = True
+        #psf_model.y_0.fixed = True
         #psf_model.sigma.fixed = False
-        fitter = LevMarLSQFitter()
+        
         _,std = calc_bkg(self.image)
         th=10
         print('sexdict:',len(self.sexdict['x']))
@@ -1464,18 +1492,19 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
         #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
         #    xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
-        fitshape = 2.5*int(self.aprad*self.fwhm - 1)*2
+        fitshape = epsf_size
+
         if fitshape%2==0:
             fitshape+=1
-
+        print('FITSHAPE:',fitshape)
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
                                               niters=1, fitshape=[fitshape]*2, 
-                                              aperture_radius=10, 
+                                              aperture_radius=2*self.aprad*self.fwhm, 
                                               extra_output_cols=('sharpness', 'roundness2'))
 
- 
+        print(pos)
         result_tab = phot(self.image,init_guesses=pos)#-np.median(self.image))
         pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('test_residual.fits',overwrite=True)
         result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
