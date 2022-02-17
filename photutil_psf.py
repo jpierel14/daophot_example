@@ -416,7 +416,8 @@ def display_psf_grid(grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     plt.close()
 
 def calc_bkg(data,var_bkg=False):
-    
+    from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
+
     bkgrms = MADStdBackgroundRMS()
     mmm_bkg = MMMBackground()
 
@@ -1414,6 +1415,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
     def build_epsf(self, size=11, found_table=None, oversample=4, iters=10,norm_radius=10,
         create_grid=False,npsf=9):
+        from photutils import EPSFBuilder, GriddedPSFModel
+        from photutils.psf import DAOGroup, extract_stars
         self.oversample=oversample
         self.num_psfs = npsf
         data = self.image
@@ -1733,8 +1736,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         from photutils.datasets import make_noise_image
         from photutils.detection import find_peaks
         from photutils.detection import DAOStarFinder
-        from photutils import EPSFBuilder, GriddedPSFModel
-        from photutils.psf import DAOGroup, extract_stars
+        
+        from photutils.psf import DAOGroup
 
         fwhm = np.median(self.sexdict['fwhm_image'][self.sexdict['fwhm_image'] > 0])
         self.getPSFstars(psfstarlist)
@@ -1748,6 +1751,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         if self.verbose:
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
+
         small_inds = [-2,-7,-8,-13,20]
         big_inds = [7,8,11,13]#0,]
         all_inds = np.arange(0,len(self.brightx),1)
@@ -1806,7 +1810,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         daogroup = DAOGroup(5.0 * self.fwhm)
 
-        bkg = photutils.background.MMMBackground()
+        bkg = MMMBackground()
 
    
 
