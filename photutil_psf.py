@@ -255,7 +255,7 @@ def residuals_extendedness_plot_PS1(phot,fits_fname,mag_PS,magerr_PS,ra_PS,dec_P
 #     print (extendedness[index].flatten())
     
     popt, pcov = curve_fit(func, xdata = extendedness[index].flatten(), ydata = res[index].flatten())
-    print(file,popt,'rms:',rms(mag_PS,mag))
+    #print(file,popt,'rms:',rms(mag_PS,mag))
 #     xdata=extendedness[index].flatten()
     xdata=np.linspace(-60,85,100)
     
@@ -408,13 +408,13 @@ def display_psf_grid(grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     vmax = grid.data.max()
     vmin = vmax*scale_range
     show_grid_helper(grid, grid.data, vmax=vmax, vmin=vmin)
-    plt.savefig('psf_grid.png',format='png')
+    plt.savefig('out_dir/psf_grid.png',format='png')
     plt.close()
     meanpsf = np.mean(grid.data, axis=0)
     diffs = grid.data - meanpsf
     vmax = np.abs(diffs).max()
     show_grid_helper(grid, diffs, vmax=vmax, vmin=-vmax, scale='linear', title='PSF differences from mean')
-    plt.savefig('psf_diff_grid.png',format='png')
+    plt.savefig('out_dir/psf_diff_grid.png',format='png')
     plt.close()
 
 def calc_bkg(data,var_bkg=False):
@@ -903,7 +903,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                         'CXY_IMAGE':sextable.CXY_IMAGE[cols],
                         'CYY_IMAGE':sextable.CYY_IMAGE[cols]}
 
-        pickle.dump(self.sexdict,open('sex_output.pkl','wb'))
+        pickle.dump(self.sexdict,open('out_dir/sex_output.pkl','wb'))
 
     def getPSF(self,
                psfstarlist=None,gain=None,
@@ -1819,14 +1819,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         self.outputcat_dao.rename_column('y_fit','Y')
         self.outputcat_dao.rename_column('flux_fit','flux')
         self.outputcat_dao.rename_column('flux_unc','fluxerror')
-        pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('test_residual.fits',overwrite=True)
-        self.outputcat_dao.write('test_phot_dao.dat',format='ascii',overwrite=True)
-        xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
+        pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('out_dir/test_residual.fits',overwrite=True)
+        self.outputcat_dao.write('out_dir/test_phot_dao.dat',format='ascii',overwrite=True)
+        xfit,yfit,fluxfit,fluxerr = np.loadtxt('out_dir/test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
         fluxerr=fluxerr.astype('str')  
         dummylist=[0]*len(xfit)
 
 
-        fout = open('outputcat_dao','w')
+        fout = open('out_dir/outputcat_dao','w')
         print ('#X Y flux fluxerror type peakval sigx sigxy sigy sky chisqr apphot apphoterr',file=fout)
         for i in range(len(xfit)):
                     print("%.3f  %.3f  %.3f  %s  %s  %i  %i  %i  %i  %i  %i  %i  %i"%(
@@ -1899,10 +1899,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
             if self.dcmpfilename is not None:
                 try:
-                    viziertable = pickle.load(open('viziertable.out','rb'))
+                    viziertable = pickle.load(open('out_dir/viziertable.out','rb'))
                 except:
                     viziertable=getPS1cat4table()
-                    pickle.dump(viziertable,open('viziertable.out','wb'))
+                    pickle.dump(viziertable,open('out_dir/viziertable.out','wb'))
                 ravizierps1=viziertable['ra_ps1']
                 decvizierps1=viziertable['dec_ps1']
                 ps1gmag=viziertable['PS1_g']
@@ -1927,7 +1927,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 #dave's code
                 #residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
                 #    viziertable,ravizierps1,decvizierps1,label='dao.py')
-                plt.savefig('phot_ext_comp_ps.png',format='png')
+                plt.savefig('out_dir/phot_ext_comp_ps.png',format='png')
                 plt.close()
                 plt.figure(figsize=(16,8))
                 
@@ -1943,7 +1943,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 #new = Table.read('outputcat_dao',format='ascii')
 
             plt.scatter(-2.5*np.log10(self.outputcat_dao['flux']),self.outputcat_dao['flux']/self.outputcat_dao['fluxerror'])
-            plt.savefig('snr.png')
+            plt.savefig('out_dir/snr.png')
             sys.exit()
     
         # get PSF
