@@ -19,24 +19,18 @@ if 'PIPE_PYTHONSCRIPTS' in os.environ:
 
 #from tools import rmfile
 from PythonPhot import djs_angle_match
-from photutils.psf import IntegratedGaussianPRF, DAOGroup
-from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
 from astropy.modeling.fitting import *
 from astropy.stats import gaussian_sigma_to_fwhm
-from photutils.psf import IterativelySubtractedPSFPhotometry
-from photutils.datasets import load_simulated_hst_star_image
-from photutils.datasets import make_noise_image
 import matplotlib.pyplot as plt
+
+
+
 from astropy.visualization import simple_norm
-from photutils.datasets import load_simulated_hst_star_image
-from photutils.datasets import make_noise_image
-from photutils.detection import find_peaks
+
 from astropy.stats import sigma_clipped_stats
 from astropy.nddata import NDData
 from astropy.table import Table
-from photutils.detection import DAOStarFinder
-from photutils import EPSFBuilder, GriddedPSFModel
-from photutils.psf import DAOGroup, extract_stars, IterativelySubtractedPSFPhotometry
+
 import pickle
 
 
@@ -52,6 +46,8 @@ from astropy.io import fits
 from scipy.optimize import curve_fit
 import warnings
 warnings.simplefilter('ignore')
+
+from photutil_classes import dao_IterativelySubtractedPSFPhotometry
 
 def getPS1cat4table ():
 # Assume a table of observations, check RA/DEC to make sure overlapping
@@ -1729,9 +1725,17 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             plt.show()
         sys.exit()
     def doPhotutilsDAO(self,psfstarlist):
-        import photutils
-        import photutils.psf
-        import photutils.psf.sandbox
+        from photutils.psf import IntegratedGaussianPRF, DAOGroup
+        from photutils.datasets import load_simulated_hst_star_image
+        from photutils.datasets import make_noise_image
+        from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
+        from photutils.datasets import load_simulated_hst_star_image
+        from photutils.datasets import make_noise_image
+        from photutils.detection import find_peaks
+        from photutils.detection import DAOStarFinder
+        from photutils import EPSFBuilder, GriddedPSFModel
+        from photutils.psf import DAOGroup, extract_stars
+
         fwhm = np.median(self.sexdict['fwhm_image'][self.sexdict['fwhm_image'] > 0])
         self.getPSFstars(psfstarlist)
 
@@ -1815,7 +1819,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         if fitshape%2==0:
             fitshape+=1
         print('FITSHAPE:',fitshape)
-        phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
+        phot = dao_IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
                                               niters=2, fitshape=[fitshape]*2, 
@@ -1892,6 +1896,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
+
         # make 42
         # self.getPSFstars(psfstarlist)
         # temp = {k:[] for k in self.sexdict.keys()}
