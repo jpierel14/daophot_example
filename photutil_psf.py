@@ -568,6 +568,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         parser.add_option('--psfRoutine'  , default='daopy', type="str",
                           help='Choice of fitting routine (daopy, dao, epsf)')
 
+        parser.add_option('--epsfOversample'  , default=1, type="int",
+                          help='EPSF psf model oversampling rate (default=%default)')
+        parser.add_option('--epsfFitradius'  , default=None, type="float",
+                          help='EPSF psf model fitradius (default is to guess based on fwhm)')
+        parser.add_option('--doepsfgrid'  , default=True, type="bool",
+                          help='Use a spatially varying ePSF, a grid (See epsfgridsize; default=%default')
+        parser.add_option('--epsfgridsize'  , default=3, type="int",
+                          help='Size of grid (on a side) to use for spatially varying ePSF (default=%default')
         return(parser)
 
     def getmasknoise(self,image,noiseimfilename=None,maskimfilename=None,bpmval=None,
@@ -1770,30 +1778,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         # bright star aperture magnitudes
         skyrad = [self.skyrad*self.fwhm, (self.skyrad+3.0)*self.fwhm]
 
-        # apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag,outstr = aper.aper(
-        #     self.image,xpsf,ypsf,
-        #     phpadu=self.gain,apr=self.aprad*self.fwhm,
-        #     skyrad=skyrad,
-        #     badpix=[self.minpixval,self.saturation],
-        #     verbose=False)
-        # # Remove those bad stars
-        # goodphotcols = np.where(badflag == 0)[0]
-        # magcols = np.argsort(apmag[goodphotcols].reshape(goodphotcols.size))
-        
-        # apmag,apmagerr,flux,fluxerr,sky,skyerr,badflag = \
-        #     apmag[goodphotcols][magcols],apmagerr[goodphotcols][magcols],flux[goodphotcols][magcols],\
-        #     fluxerr[goodphotcols][magcols],sky[goodphotcols][magcols],skyerr[goodphotcols][magcols],\
-        #     badflag[goodphotcols][magcols]
-        # xpsf,ypsf = xpsf[goodphotcols][magcols],ypsf[goodphotcols][magcols]
-
-        #psf_model = photutils.psf.sandbox.DiscretePRF.create_from_image(calc_bkg(self.image)[0],
-        #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
-        #psf_model = photutils.psf.IntegratedGaussianPRF(sigma=5.0)
-        fitter = LevMarLSQFitter()#SLSQPLSQFitter()
-        oversample_rate = 1
-        epsf_size = 36#31
+        fitter = LevMarLSQFitter()
+        oversample_rate = self.epsfOversample
+        if self.epsfFitradius is None:
+            epsf_size = self.fwhm*5
+        else:
+            epsf_size = self.epsfFitradius
         psf_model,fitted_star_locs = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
-            iters=30,norm_radius=min(5*self.aprad*self.fwhm,epsf_size/2),npsf=9,create_grid=True)
+            iters=30,norm_radius=epsf_size,npsf=self.epsfgridsize,create_grid=self.doepsfgrid)
         print('NSTAR:',len(fitted_star_locs))
         #psf_model.x_0.fixed = True
         #psf_model.y_0.fixed = True
