@@ -201,11 +201,13 @@ def analyzedcmp (filename):
         return (x,y,extendedness)
     
 
-def residuals_extendedness_plot_PS1(file,mag_PS,magerr_PS,ra_PS,dec_PS,extendedness,ra_PSdcmp,dec_PSdcmp,viziertable,ravizierps1,decvizierps1,label=None):
+def residuals_extendedness_plot_PS1(phot,fits_fname,mag_PS,magerr_PS,ra_PS,dec_PS,extendedness,ra_PSdcmp,
+        dec_PSdcmp,viziertable,ravizierps1,decvizierps1,label=None):
     if label is None:
-        label = os.path.splitext(file)[0]
-    phot = Table.read(file,format='ascii')
-    raphot,decphot=frompixtoradec(phot['X'],phot['Y'],'F15anh.g.101013_53_1933.sw.fits')
+        label = ''
+    print(phot)
+    print(phot.dtype)
+    raphot,decphot=frompixtoradec(phot['X'],phot['Y'],fits_fname)
     zpt=calc_zpt(viziertable['PS1_g'],phot['flux'],raphot,decphot,ravizierps1,decvizierps1)
     mag=-2.5*np.log10(phot['flux'])+zpt
     magerr=2.5*0.434*(phot['fluxerror']/phot['flux'])
@@ -572,10 +574,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                           help='EPSF psf model oversampling rate (default=%default)')
         parser.add_option('--epsfFitradius'  , default=None, type="float",
                           help='EPSF psf model fitradius (default is to guess based on fwhm)')
-        parser.add_option('--doepsfgrid'  , default=True, type="bool",
+        parser.add_option('--doepsfgrid'  , default=False, action="store_true",
                           help='Use a spatially varying ePSF, a grid (See epsfgridsize; default=%default')
         parser.add_option('--epsfgridsize'  , default=3, type="int",
                           help='Size of grid (on a side) to use for spatially varying ePSF (default=%default')
+        parser.add_option('--nepsfiters'  , default=10, type="int",
+                          help='Number of fit iterations for the EPSFBuilder (default=%default')
+        parser.add_option('--dcmpfilename'  , default=None, type="str",
+                          help='Filename for a dcmp file (default=%default')
         return(parser)
 
     def getmasknoise(self,image,noiseimfilename=None,maskimfilename=None,bpmval=None,
@@ -1748,6 +1754,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         from photutils.psf import DAOGroup
 
         fwhm = np.median(self.sexdict['fwhm_image'][self.sexdict['fwhm_image'] > 0])
+
         self.getPSFstars(psfstarlist)
 
         if not self.brightfwhm.size:
@@ -1760,22 +1767,13 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         if self.verbose:
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
 
-        small_inds = [-2,-7,-8,-13,20]
-        big_inds = [7,8,11,13]#0,]
-        all_inds = np.arange(0,len(self.brightx),1)
-        good_inds = all_inds
-        xpsf,ypsf = np.array(self.brightx[good_inds]),np.array(self.brighty[good_inds])
         sources = Table()
         
-        sources['x_mean'] = xpsf #self.sexdict['x'] #
-        sources['y_mean'] = ypsf #self.sexdict['y'] #
-        # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
+        sources['x_mean'] = self.sexdict['x'] # xpsf #
+        sources['y_mean'] = self.sexdict['y'] # ypsf #
 
         pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
-        #xpsf,ypsf = self.brightx,self.brighty
 
-        from PythonPhot import aper
-        # bright star aperture magnitudes
         skyrad = [self.skyrad*self.fwhm, (self.skyrad+3.0)*self.fwhm]
 
         fitter = LevMarLSQFitter()
@@ -1784,12 +1782,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             epsf_size = self.fwhm*5
         else:
             epsf_size = self.epsfFitradius
+
         psf_model,fitted_star_locs = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
-            iters=30,norm_radius=epsf_size,npsf=self.epsfgridsize,create_grid=self.doepsfgrid)
-        print('NSTAR:',len(fitted_star_locs))
-        #psf_model.x_0.fixed = True
-        #psf_model.y_0.fixed = True
-        #psf_model.sigma.fixed = False
+            iters=self.nepsfiters,norm_radius=epsf_size,npsf=self.epsfgridsize**2,create_grid=self.doepsfgrid)
+        
         
         bk_sub,bk_calc,std = calc_bkg(self.image,var_bkg=True)
 
@@ -1797,19 +1793,13 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         from astropy.stats import SigmaClip
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
                     xycoords=np.array([fitted_star_locs['x_0'],fitted_star_locs['y_0']]).T)
-            #xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
 
         
         daogroup = DAOGroup(5.0 * self.fwhm)
 
         bkg = MMMBackground()
 
-   
 
-        #thresh = 2.5*bkg(self.image-np.median(self.image))
-        #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
-        #    self.fwhm,psf_model,int((self.psfrad-1)/2),niters=2,
-        #    xycoords=np.array([self.sexdict['x'],self.sexdict['y']]).T)
         fitshape = int(epsf_size)
 
         if fitshape%2==0:
@@ -1823,14 +1813,18 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                               extra_output_cols=('sharpness', 'roundness2'))
         from photutils.utils import calc_total_error
 
-        result_tab = phot(self.image,init_guesses=fitted_star_locs,
-            #image_weights=1/calc_total_error(bk_sub,np.sqrt(self.image_noise),41))#-np.median(self.image))
-            image_weights=1/np.sqrt(self.image_noise))#
+        self.outputcat_dao = phot(self.image,init_guesses=fitted_star_locs,
+            image_weights=1/np.sqrt(self.image_noise))
+        self.outputcat_dao.rename_column('x_fit','X')
+        self.outputcat_dao.rename_column('y_fit','Y')
+        self.outputcat_dao.rename_column('flux_fit','flux')
+        self.outputcat_dao.rename_column('flux_unc','fluxerror')
         pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('test_residual.fits',overwrite=True)
-        result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
+        self.outputcat_dao.write('test_phot_dao.dat',format='ascii',overwrite=True)
         xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
         fluxerr=fluxerr.astype('str')  
         dummylist=[0]*len(xfit)
+
 
         fout = open('outputcat_dao','w')
         print ('#X Y flux fluxerror type peakval sigx sigxy sigy sky chisqr apphot apphoterr',file=fout)
@@ -1886,27 +1880,12 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
 
         # Run SExtractor to get star parameters
-        #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
-        #self.runsex('2018hyz.i.ut181124.1129_stch_1.sw.fits',None,None,sexstring)
+        self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
         #sys.exit()
 
-        self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
-        self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
+        #self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
+        #self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
 
-        # make 42
-        # self.getPSFstars(psfstarlist)
-        # temp = {k:[] for k in self.sexdict.keys()}
-        # for i in range(len(self.sexdict['x'])):
-        #     if self.sexdict['x'][i] in self.brightx and \
-        #              self.sexdict['y'][i] in self.brighty:
-        #             for k in temp.keys():
-        #                 temp[k].append(self.sexdict[k][i])
-
-        # temp = {k:np.array(temp[k]) for k in temp.keys()}
-        # self.sexdict = temp
-
-        # creates self.psf_model and self.fitted_phot
-        # 
         if method == 'epsf':
             self.doPhotutilsePSF(psfstarlist)
 
@@ -1917,51 +1896,53 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         elif method == 'dao':
 
             self.doPhotutilsDAO(psfstarlist)
-            try:
-                viziertable = pickle.load(open('viziertable.out','rb'))
-            except:
-                viziertable=getPS1cat4table()
-                pickle.dump(viziertable,open('viziertable.out','wb'))
-            ravizierps1=viziertable['ra_ps1']
-            decvizierps1=viziertable['dec_ps1']
-            ps1gmag=viziertable['PS1_g']
-            ps1gmagerr=viziertable['PS1_g_err']
 
-            ravizierps1=np.asarray(ravizierps1)
-            decvizierps1=np.asarray(decvizierps1)
-            ps1gmag=np.asarray(ps1gmag,float)
-            ps1gmagerr=np.asarray(ps1gmagerr)
-            ps1gmag[2]
-            x_PSdcmp,y_PSdcmp, extendedness=analyzedcmp('F15anh.g.101013_53_1933.sw.dcmp')
-            ra_PSdcmp,dec_PSdcmp=frompixtoradec(x_PSdcmp,y_PSdcmp,'F15anh.g.101013_53_1933.sw.fits')
-            extendedness=np.asarray(extendedness,float)
-            ravizierps1=np.asarray(ravizierps1)
-            decvizierps1=np.asarray(decvizierps1)
-            ps1gmag=np.asarray(ps1gmag)
-            ps1gmagerr=np.asarray(ps1gmagerr)
-            plt.figure(figsize=(16,8))
+            if self.dcmpfilename is not None:
+                try:
+                    viziertable = pickle.load(open('viziertable.out','rb'))
+                except:
+                    viziertable=getPS1cat4table()
+                    pickle.dump(viziertable,open('viziertable.out','wb'))
+                ravizierps1=viziertable['ra_ps1']
+                decvizierps1=viziertable['dec_ps1']
+                ps1gmag=viziertable['PS1_g']
+                ps1gmagerr=viziertable['PS1_g_err']
 
-            residuals_extendedness_plot_PS1('outputcat_dao',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
-                viziertable,ravizierps1,decvizierps1,label='Gridded ePSF')
-            #dave's code
-            residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
-                viziertable,ravizierps1,decvizierps1,label='dao.py')
-            plt.savefig('phot_ext_comp_ps.png',format='png')
-            plt.close()
-            plt.figure(figsize=(16,8))
-            
+                ravizierps1=np.asarray(ravizierps1)
+                decvizierps1=np.asarray(decvizierps1)
+                ps1gmag=np.asarray(ps1gmag,float)
+                ps1gmagerr=np.asarray(ps1gmagerr)
+                ps1gmag[2]
+                x_PSdcmp,y_PSdcmp, extendedness=analyzedcmp(self.dcmpfilename)
+                ra_PSdcmp,dec_PSdcmp=frompixtoradec(x_PSdcmp,y_PSdcmp,imagefilename)
+                extendedness=np.asarray(extendedness,float)
+                ravizierps1=np.asarray(ravizierps1)
+                decvizierps1=np.asarray(decvizierps1)
+                ps1gmag=np.asarray(ps1gmag)
+                ps1gmagerr=np.asarray(ps1gmagerr)
+                plt.figure(figsize=(16,8))
 
-            ra_ap,dec_ap,mag_ap,magerr_ap=create_data_for_plot_photutils_aperturephot('daopy_42.txt',viziertable,ravizierps1,decvizierps1)
-            residuals_extendedness_plot('outputcat_dao',mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
-                ra_ap,dec_ap,label='Gridded ePSF')
+                residuals_extendedness_plot_PS1(self.outputcat_dao,imagefilename,ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
+                    viziertable,ravizierps1,decvizierps1,label='Gridded ePSF')
+                #dave's code
+                #residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
+                #    viziertable,ravizierps1,decvizierps1,label='dao.py')
+                plt.savefig('phot_ext_comp_ps.png',format='png')
+                plt.close()
+                plt.figure(figsize=(16,8))
+                
 
-            residuals_extendedness_plot('daopy_42.txt',mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
-                ra_ap,dec_ap,label='dao.py')
-            plt.savefig('phot_ext_comp_ap.png',format='png')
-            plt.close()
-            new = Table.read('outputcat_dao',format='ascii')
+                #ra_ap,dec_ap,mag_ap,magerr_ap=create_data_for_plot_photutils_aperturephot('daopy_42.txt',viziertable,ravizierps1,decvizierps1)
+                #residuals_extendedness_plot(self.outputcat_dao,mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
+                #    ra_ap,dec_ap,label='Gridded ePSF')
 
-            plt.scatter(-2.5*np.log10(new['flux']),new['flux']/new['fluxerror'])
+                #residuals_extendedness_plot('daopy_42.txt',mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
+                #    ra_ap,dec_ap,label='dao.py')
+                #plt.savefig('phot_ext_comp_ap.png',format='png')
+                #plt.close()
+                #new = Table.read('outputcat_dao',format='ascii')
+
+            plt.scatter(-2.5*np.log10(self.outputcat_dao['flux']),self.outputcat_dao['flux']/self.outputcat_dao['fluxerror'])
             plt.savefig('snr.png')
             sys.exit()
     
@@ -2050,7 +2031,8 @@ if __name__=='__main__':
 
     parser = dao.add_options(usage=usagestring)
     options,  args = parser.parse_args()
-
+    print(args)
+    print(options)
     if len(args)!=2:
         parser.parse_args(args=['--help'])
         sys.exit(0)
@@ -2090,7 +2072,12 @@ if __name__=='__main__':
     dao.psftrimSizeDeg = options.psftrimSizeDeg
     dao.ObjRA = options.ObjRA
     dao.ObjDec = options.ObjDec
-    
+    dao.epsfOversample = options.epsfOversample
+    dao.epsfFitradius = options.epsfFitradius
+    dao.doepsfgrid = options.doepsfgrid
+    dao.epsfgridsize = options.epsfgridsize
+    dao.nepsfiters = options.nepsfiters
+    dao.dcmpfilename = options.dcmpfilename
     try:
         dao.gain = pyfits.getval(imagefilename,'GAIN')
     except:
