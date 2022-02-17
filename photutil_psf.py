@@ -20,7 +20,7 @@ if 'PIPE_PYTHONSCRIPTS' in os.environ:
 #from tools import rmfile
 from PythonPhot import djs_angle_match
 from photutils.psf import IntegratedGaussianPRF, DAOGroup
-from photutils.background import MMMBackground, MADStdBackgroundRMS
+from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
 from astropy.modeling.fitting import *
 from astropy.stats import gaussian_sigma_to_fwhm
 from photutils.psf import IterativelySubtractedPSFPhotometry
@@ -266,7 +266,7 @@ def residuals_extendedness_plot_PS1(file,mag_PS,magerr_PS,ra_PS,dec_PS,extendedn
 
     plt.xlabel('extendedness',fontsize=12)
     plt.ylabel('photutils mag - PS',fontsize=12)
-    
+    plt.ylim((-.1,.1))
 
     plt.axvline(x=0,c='k',linestyle='--')
     plt.axhline(y=0,c='k',linestyle='--')
@@ -332,7 +332,7 @@ def residuals_extendedness_plot(file,mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,exten
 
     plt.xlabel('extendedness',fontsize=12)
     plt.ylabel('photutils mag - ap phot mag',fontsize=12)
-    
+    plt.ylim((-.1,.1))    
 
     plt.axvline(x=0,c='k',linestyle='--')
     plt.axhline(y=0,c='k',linestyle='--')
@@ -426,6 +426,8 @@ def calc_bkg(data,var_bkg=False):
 
     if var_bkg:
         print('Using 2D Background')
+        from astropy.stats import SigmaClip
+        
         sigma_clip = SigmaClip(sigma=3.)
         coverage_mask = (data == 0)
 
@@ -433,10 +435,10 @@ def calc_bkg(data,var_bkg=False):
                            coverage_mask=coverage_mask, fill_value=0.0)
 
         data_bkgsub = data.copy()
-        data_bkgsub = data_bkgsub - bkg.background
+        data_bkgsub = data_bkgsub - bkg.background_rms
 
         _, _, std = sigma_clipped_stats(data_bkgsub)
-
+        return data_bkgsub, bkg.background_rms,std
     else:
 
         std = bkgrms(data)
@@ -445,7 +447,7 @@ def calc_bkg(data,var_bkg=False):
         data_bkgsub = data.copy().astype(float)
         data_bkgsub -= bkg
 
-    return data_bkgsub, std
+        return data_bkgsub, bkg,std
 
 def find_stars(data, fwhm,threshold=3, var_bkg=False):
     
@@ -455,7 +457,7 @@ def find_stars(data, fwhm,threshold=3, var_bkg=False):
 
     #print('FWHM for the filter {f}:'.format(f=filt), sigma_psf, "px")
     
-    data_bkgsub, std = calc_bkg(data,var_bkg=False)
+    data_bkgsub,bkg_calc, std = calc_bkg(data,var_bkg=False)
     
     daofind = DAOStarFinder(threshold=threshold * std, fwhm=sigma_psf)
     found_stars = daofind(data_bkgsub)
@@ -1430,7 +1432,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         stars_tbl['x'] = x#[mask]
         stars_tbl['y'] = y#[mask]
         
-        data_bkgsub, _ = calc_bkg(data)
+        data_bkgsub,_, _ = calc_bkg(data)
         
         nddata = NDData(data=data_bkgsub)
         
@@ -1647,7 +1649,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         fitter = LevMarLSQFitter()
         mmm_bkg = MMMBackground()
-        _,std = calc_bkg(self.image)
+        _,_,std = calc_bkg(self.image)
         th=10
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
             xycoords=np.array([self.brightx,self.brighty]).T)
@@ -1751,7 +1753,6 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         
         sources['x_mean'] = xpsf #self.sexdict['x'] #
         sources['y_mean'] = ypsf #self.sexdict['y'] #
-
         # pos=np.array([self.sexdict['x'],self.sexdict['y']]).T
 
         pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
@@ -1781,15 +1782,17 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #                Table([xpsf,ypsf],names=['x_0','y_0']),int(self.psfrad),mask=self.image_mask)
         #psf_model = photutils.psf.IntegratedGaussianPRF(sigma=5.0)
         fitter = LevMarLSQFitter()#SLSQPLSQFitter()
-        oversample_rate = 2
-        epsf_size = 31
+        oversample_rate = 1
+        epsf_size = 36#31
         psf_model,fitted_star_locs = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
-            iters=40,norm_radius=min(5*self.aprad*self.fwhm,epsf_size/2),npsf=4,create_grid=False)
+            iters=30,norm_radius=min(5*self.aprad*self.fwhm,epsf_size/2),npsf=9,create_grid=True)
+        print('NSTAR:',len(fitted_star_locs))
         #psf_model.x_0.fixed = True
         #psf_model.y_0.fixed = True
         #psf_model.sigma.fixed = False
         
-        _,std = calc_bkg(self.image)
+        bk_sub,bk_calc,std = calc_bkg(self.image,var_bkg=True)
+
         th=10
         from astropy.stats import SigmaClip
         daofind = DAOStarFinder(threshold=th * std, fwhm=self.fwhm,
@@ -1801,9 +1804,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         bkg = photutils.background.MMMBackground()
 
-        
-
-        
+   
 
         #thresh = 2.5*bkg(self.image-np.median(self.image))
         #photometry = photutils.psf.DAOPhotPSFPhotometry(8,thresh,
@@ -1817,15 +1818,18 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
-                                              niters=1, fitshape=[fitshape]*2, 
-                                              aperture_radius=min(5*self.aprad*self.fwhm,epsf_size/2), 
+                                              niters=2, fitshape=[fitshape]*2, 
+                                              aperture_radius=min(self.aprad*self.fwhm,epsf_size/2), 
                                               extra_output_cols=('sharpness', 'roundness2'))
+        from photutils.utils import calc_total_error
 
-        result_tab = phot(self.image,init_guesses=fitted_star_locs)#-np.median(self.image))
+        result_tab = phot(self.image,init_guesses=fitted_star_locs,
+            #image_weights=1/calc_total_error(bk_sub,np.sqrt(self.image_noise),41))#-np.median(self.image))
+            image_weights=1/np.sqrt(self.image_noise))#
         pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('test_residual.fits',overwrite=True)
         result_tab.write('test_phot_dao.dat',format='ascii',overwrite=True)
         xfit,yfit,fluxfit,fluxerr = np.loadtxt('test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
-        fluxerr=fluxerr.astype('str') 
+        fluxerr=fluxerr.astype('str')  
         dummylist=[0]*len(xfit)
 
         fout = open('outputcat_dao','w')
@@ -1954,6 +1958,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 ra_ap,dec_ap,label='dao.py')
             plt.savefig('phot_ext_comp_ap.png',format='png')
             plt.close()
+            new = Table.read('outputcat_dao',format='ascii')
+
+            plt.scatter(-2.5*np.log10(new['flux']),new['flux']/new['fluxerror'])
+            plt.savefig('snr.png')
             sys.exit()
     
         # get PSF
