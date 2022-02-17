@@ -205,8 +205,8 @@ def residuals_extendedness_plot_PS1(phot,fits_fname,mag_PS,magerr_PS,ra_PS,dec_P
         dec_PSdcmp,viziertable,ravizierps1,decvizierps1,label=None):
     if label is None:
         label = ''
-    print(phot)
-    print(phot.dtype)
+
+
     raphot,decphot=frompixtoradec(phot['X'],phot['Y'],fits_fname)
     zpt=calc_zpt(viziertable['PS1_g'],phot['flux'],raphot,decphot,ravizierps1,decvizierps1)
     mag=-2.5*np.log10(phot['flux'])+zpt
@@ -1025,16 +1025,16 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             
             #print('X and Y of PSF stars') 
             #print(xpsf,ypsf)
-	    
+        
             fitrad = self.aprad*self.fwhm - 1
             if fitrad >= self.psfrad: fitrad=self.psfrad-1
-	    
+        
             #print('Fitting radius:') 
             #print(fitrad)
             #print(len(xpsf))
-	    
+        
             #print(outputpsffilename)
-	        
+            
             
             if psf_method == 'ePSF':
                 epsf_builder = EPSFBuilder(oversampling=4, maxiters=20,
@@ -1899,48 +1899,51 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
             if self.dcmpfilename is not None:
                 try:
-                    viziertable = pickle.load(open('out_dir/viziertable.out','rb'))
+                    try:
+                        viziertable = pickle.load(open('out_dir/viziertable.out','rb'))
+                    except:
+                        viziertable=getPS1cat4table()
+                        pickle.dump(viziertable,open('out_dir/viziertable.out','wb'))
+                    ravizierps1=viziertable['ra_ps1']
+                    decvizierps1=viziertable['dec_ps1']
+                    ps1gmag=viziertable['PS1_g']
+                    ps1gmagerr=viziertable['PS1_g_err']
+
+                    ravizierps1=np.asarray(ravizierps1)
+                    decvizierps1=np.asarray(decvizierps1)
+                    ps1gmag=np.asarray(ps1gmag,float)
+                    ps1gmagerr=np.asarray(ps1gmagerr)
+                    ps1gmag[2]
+                    x_PSdcmp,y_PSdcmp, extendedness=analyzedcmp(self.dcmpfilename)
+                    ra_PSdcmp,dec_PSdcmp=frompixtoradec(x_PSdcmp,y_PSdcmp,imagefilename)
+                    extendedness=np.asarray(extendedness,float)
+                    ravizierps1=np.asarray(ravizierps1)
+                    decvizierps1=np.asarray(decvizierps1)
+                    ps1gmag=np.asarray(ps1gmag)
+                    ps1gmagerr=np.asarray(ps1gmagerr)
+                    plt.figure(figsize=(16,8))
+
+                    residuals_extendedness_plot_PS1(self.outputcat_dao,imagefilename,ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
+                        viziertable,ravizierps1,decvizierps1,label='Gridded ePSF')
+                    #dave's code
+                    #residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
+                    #    viziertable,ravizierps1,decvizierps1,label='dao.py')
+                    plt.savefig('out_dir/phot_ext_comp_ps.png',format='png')
+                    plt.close()
+                    plt.figure(figsize=(16,8))
+                    
+
+                    #ra_ap,dec_ap,mag_ap,magerr_ap=create_data_for_plot_photutils_aperturephot('daopy_42.txt',viziertable,ravizierps1,decvizierps1)
+                    #residuals_extendedness_plot(self.outputcat_dao,mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
+                    #    ra_ap,dec_ap,label='Gridded ePSF')
+
+                    #residuals_extendedness_plot('daopy_42.txt',mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
+                    #    ra_ap,dec_ap,label='dao.py')
+                    #plt.savefig('phot_ext_comp_ap.png',format='png')
+                    #plt.close()
+                    #new = Table.read('outputcat_dao',format='ascii')
                 except:
-                    viziertable=getPS1cat4table()
-                    pickle.dump(viziertable,open('out_dir/viziertable.out','wb'))
-                ravizierps1=viziertable['ra_ps1']
-                decvizierps1=viziertable['dec_ps1']
-                ps1gmag=viziertable['PS1_g']
-                ps1gmagerr=viziertable['PS1_g_err']
-
-                ravizierps1=np.asarray(ravizierps1)
-                decvizierps1=np.asarray(decvizierps1)
-                ps1gmag=np.asarray(ps1gmag,float)
-                ps1gmagerr=np.asarray(ps1gmagerr)
-                ps1gmag[2]
-                x_PSdcmp,y_PSdcmp, extendedness=analyzedcmp(self.dcmpfilename)
-                ra_PSdcmp,dec_PSdcmp=frompixtoradec(x_PSdcmp,y_PSdcmp,imagefilename)
-                extendedness=np.asarray(extendedness,float)
-                ravizierps1=np.asarray(ravizierps1)
-                decvizierps1=np.asarray(decvizierps1)
-                ps1gmag=np.asarray(ps1gmag)
-                ps1gmagerr=np.asarray(ps1gmagerr)
-                plt.figure(figsize=(16,8))
-
-                residuals_extendedness_plot_PS1(self.outputcat_dao,imagefilename,ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
-                    viziertable,ravizierps1,decvizierps1,label='Gridded ePSF')
-                #dave's code
-                #residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
-                #    viziertable,ravizierps1,decvizierps1,label='dao.py')
-                plt.savefig('out_dir/phot_ext_comp_ps.png',format='png')
-                plt.close()
-                plt.figure(figsize=(16,8))
-                
-
-                #ra_ap,dec_ap,mag_ap,magerr_ap=create_data_for_plot_photutils_aperturephot('daopy_42.txt',viziertable,ravizierps1,decvizierps1)
-                #residuals_extendedness_plot(self.outputcat_dao,mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
-                #    ra_ap,dec_ap,label='Gridded ePSF')
-
-                #residuals_extendedness_plot('daopy_42.txt',mag_ap,magerr_ap,ra_PSdcmp,dec_PSdcmp,extendedness,viziertable,ravizierps1,decvizierps1,
-                #    ra_ap,dec_ap,label='dao.py')
-                #plt.savefig('phot_ext_comp_ap.png',format='png')
-                #plt.close()
-                #new = Table.read('outputcat_dao',format='ascii')
+                    print('Plotting failed!')
 
             plt.scatter(-2.5*np.log10(self.outputcat_dao['flux']),self.outputcat_dao['flux']/self.outputcat_dao['fluxerror'])
             plt.savefig('out_dir/snr.png')
