@@ -48,6 +48,26 @@ import warnings
 warnings.simplefilter('ignore')
 
 from photutil_classes import dao_IterativelySubtractedPSFPhotometry
+from photutils.datasets import make_model_sources_image 
+    
+def temp_plant(args):
+    i,inds,im_shape,psf_model,sources = args
+    
+    #print(sources[inds[i]:inds[i+1]])
+    return make_model_sources_image(im_shape,psf_model,sources[inds[i]:inds[i+1]])
+
+
+def create_pixregionfile(x,y,regionname,color,coords='image'):
+        with open(regionname, 'w') as f:
+            f.write('global color={0} dashlist=8 3 width=2 font=\"helvetica 10 normal roman\" select=1 highlite=1 dash=0 fixed=0 edit=1 move=1 delete=1 include=1 source=1 \n'.format(color))
+            f.write('%s \n'%coords)
+            for star in range(len(x)):
+                xval = x[star]
+                yval = y[star]
+                f.write('circle({ra},{dec},{radius}")\n'.format(ra=xval, dec=yval,radius=2))
+
+    #     return (ra_wcs,dec_wcs,flux)
+        f.close()
 
 def getPS1cat4table ():
 # Assume a table of observations, check RA/DEC to make sure overlapping
@@ -1755,8 +1775,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         fwhm = np.median(self.sexdict['fwhm_image'][self.sexdict['fwhm_image'] > 0])
 
-        self.getPSFstars(psfstarlist)
-
+        #self.getPSFstars(psfstarlist)
+        self.brightfwhm = fwhm
         if not self.brightfwhm.size:
             # This can happen, rarely.
             raise RuntimeError ('no bright FWHM stars were found')
@@ -1769,9 +1789,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         sources = Table()
         
-        sources['x_mean'] = self.sexdict['x'] # xpsf #
-        sources['y_mean'] = self.sexdict['y'] # ypsf #
-
+        sources['x_mean'] = psfstarlist['x_0']#self.sexdict['x'] # xpsf #
+        sources['y_mean'] = psfstarlist['y_0']#self.sexdict['y'] # ypsf #
+        print(sources)
         pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
 
         skyrad = [self.skyrad*self.fwhm, (self.skyrad+3.0)*self.fwhm]
@@ -1785,7 +1805,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         psf_model,fitted_star_locs = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
             iters=self.nepsfiters,norm_radius=epsf_size,npsf=self.epsfgridsize**2,create_grid=self.doepsfgrid)
-        
+        print(fitted_star_locs)
+        self.gridded_epsf = psf_model
+        #pickle.dump(self.gridded_epsf,open('out_dir/psf_model.pkl','wb'))
         
         bk_sub,bk_calc,std = calc_bkg(self.image,var_bkg=True)
 
@@ -1808,13 +1830,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         phot = dao_IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=bkg, psf_model=psf_model,
                                               fitter=fitter,
-                                              niters=2, fitshape=[fitshape]*2, 
+                                              niters=1, fitshape=[fitshape]*2, 
                                               aperture_radius=min(self.aprad*self.fwhm,epsf_size/2), 
                                               extra_output_cols=('sharpness', 'roundness2'))
         from photutils.utils import calc_total_error
 
         self.outputcat_dao = phot(self.image,init_guesses=fitted_star_locs,
             image_weights=1/np.sqrt(self.image_noise))
+        print(self.outputcat_dao)
         self.outputcat_dao.rename_column('x_fit','X')
         self.outputcat_dao.rename_column('y_fit','Y')
         self.outputcat_dao.rename_column('flux_fit','flux')
@@ -1838,7 +1861,104 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                         dummylist[i],dummylist[i],
                         dummylist[i]), file=fout)
         fout.close()
+    
+
+    def plant_fake_stars(self,psf_model=None,xylocations=None,out_filename=None,
+                                             fluxes=None,nplants=50,star_sep=15,
+                                             plant_flux=400000):
+        from photutils.aperture import CircularAperture,CircularAnnulus
+        from photutils.aperture import aperture_photometry
+        from photutils.datasets import make_model_sources_image 
+        import multiprocessing
+        from copy import copy
+        import pyParz
+        if psf_model is None:
+            try:
+                psf_model = self.gridded_epsf
+            except:
+                print('Need to supply psf model.')
+                sys.exit()
+        im_background = np.median(self._non_fake_image)
+        if xylocations is None:
+            xpos = []#np.random.uniform(0,self.image.shape[1],nplants)
+            ypos = []#np.random.uniform(0,self.image.shape[0],nplants)
+            n_tries = 0
+            high_fluxes = []
+            while len(xpos)<nplants:
+                n_tries+=1
+                if n_tries > 1000*nplants:
+                    print('Cannot plant enough stars.')
+                    sys.exit()
+                tempx = np.random.uniform(star_sep,self._non_fake_image.shape[1]-star_sep)
+                tempy = np.random.uniform(star_sep,self._non_fake_image.shape[0]-star_sep)
         
+                aperture = CircularAperture(np.array([tempx,tempy]), r=star_sep)
+                mask_res = aperture_photometry(self.image_mask,aperture)['aperture_sum']
+
+                annulus_aperture = CircularAnnulus([tempx,tempy], r_in=star_sep*1.5, r_out=star_sep*3)
+                annulus_masks = annulus_aperture.to_mask(method='center')
+                annulus_data = annulus_masks.multiply(self._non_fake_image)
+                mask = annulus_masks.data
+                annulus_data_1d = annulus_data[mask > 0]
+                mean_sigclip, _, _ = sigma_clipped_stats(annulus_data_1d)
+                apers = [aperture, annulus_aperture]
+                phot_table = aperture_photometry(self._non_fake_image,apers,error=np.sqrt(self.image_noise))
+                background = mean_sigclip * aperture.area
+                flux_res = phot_table['aperture_sum_0']-background#aperture_photometry(self.image,aperture)['aperture_sum'] - im_background  
+                err_res = phot_table['aperture_sum_err_0']
+                #err_res = aperture_photometry(self.image_noise,aperture)['aperture_sum']    
+                if mask_res > 0 or flux_res/err_res > 3:
+                    if flux_res/err_res > 15:
+                        high_fluxes.append(flux_res)
+                    #print(len(xpos),float(mask_res),float(flux_res),float(err_res),im_background)
+                    continue
+                #else:
+                #    print('success: ',float(mask_res),float(flux_res),float(err_res))
+                xpos.append(tempx)
+                ypos.append(tempy)
+            print('Successfully created %i fake plant locations.'%nplants)
+            create_pixregionfile(xpos,ypos,'out_dir/fake_plants.reg','red')
+            sources = Table()
+            sources['x_0'] = np.array(xpos)
+            sources['y_0'] = np.array(ypos)
+            sources['id'] = np.arange(1,len(sources)+1,1)
+            sources['theta'] = [0]*len(sources)
+            sources['flux'] = [plant_flux]*len(sources)#np.random.normal(loc=np.mean(high_fluxes),scale=np.std(high_fluxes))
+            #sources['flux'] = np.random.normal(loc=np.mean(high_fluxes),scale=np.std(high_fluxes),size=len(sources))
+
+            #model_ims = []
+
+            ncpus = int(np.min([multiprocessing.cpu_count(),nplants/2]))
+            print('splitting to %i cpus'%ncpus)
+            inds = np.linspace(0,len(sources),ncpus).astype(int)
+
+            #for i in range(len(inds)-1):
+            #    model_ims.append(temp_plant([i,inds,self.image.shape,psf_model,sources]))
+            model_ims = pyParz.foreach(np.arange(0,len(inds)-1,1),temp_plant,args=[inds,self._non_fake_image.shape,psf_model,sources])
+            plant_im = np.zeros(self._non_fake_image.shape)
+            for im in model_ims:
+                plant_im+=im
+            #plant_im = make_model_sources_image(self._non_fake_image.shape,psf_model,sources)
+            
+            print('Planted %i stars successfully.'%nplants)
+            self.fake_sources = sources
+            self.fake_sources.write('out_dir/fake_plants.cat',format='ascii')
+            
+            
+            self.planted_fits_image = copy(self._non_fake_fits_image)
+            self.planted_fits_image[0].data = self._non_fake_image + plant_im
+            self.fake_planted_image = self._non_fake_image + plant_im
+            if out_filename is None:
+                out_filename = 'out_dir/fake_plant_image.fits'
+            self.planted_fits_image.writeto(out_filename,overwrite=True)
+            #plt.imshow(model_im)
+            #plt.show()
+            #sys.exit()
+
+
+
+    
+
     def dophotometry(self,imagefilename,outputcat,
                      noiseimfilename=None,maskimfilename=None,
                      gain=None,saturation=None,readnoise=None,
@@ -1864,6 +1984,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             os.system('rm %s'%fittedpsffilename)
 
         # load the image
+        self._non_fake_fits_image = fits.open(imagefilename.replace('_fake.fits','.fits'))
+        (self._non_fake_image,self._non_fake_hdr)=pyfits.getdata(imagefilename.replace('_fake.fits','.fits'),0,header=True)
+        self.fits_image = fits.open(imagefilename)
         (self.image,self.hdr)=pyfits.getdata(imagefilename,0,header=True)
 
         # get the mask and noise
@@ -1880,11 +2003,11 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
 
         # Run SExtractor to get star parameters
-        self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
+        #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
         #sys.exit()
 
-        #self.sexdict = pickle.load(open('newsex_ps.pkl','rb'))
-        #self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
+        self.sexdict = pickle.load(open('data_dir/newsex_ps.pkl','rb'))
+        self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
 
         if method == 'epsf':
             self.doPhotutilsePSF(psfstarlist)
@@ -1895,8 +2018,36 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             sys.exit()
         elif method == 'dao':
 
-            self.doPhotutilsDAO(psfstarlist)
+            
+            star_flux = 400000
+            if '_fake' in imagefilename:
+                fake_out_name = imagefilename
+            else:
+                fake_out_name = imagefilename.replace('.fits','_fake.fits')
+            self.plant_fake_stars(pickle.load(open('out_dir/psf_model.pkl','rb')),out_filename=fake_out_name,
+                                        nplants=100,plant_flux=star_flux)
+            if '_fake' not in imagefilename:
+                print('make sure to now run with %s as your image name in test_dao.sh'%imagefilename.replace('.fits','_fake.fits'))
+                sys.exit()
+            self.doPhotutilsDAO(Table.read('out_dir/fake_plants.cat',format='ascii'))
 
+            fake_res = Table.read('out_dir/outputcat_dao',format='ascii')
+            fake_res['flux_diff'] = fake_res['flux']-star_flux
+            print('fake recovery precision (raw flux): %.2f'%(np.std(fake_res['flux_diff'])))
+            #### REAL UNCERTAINTY CALC,TODO ####
+            #fake_res['fluxerror'] = np.sqrt(np.std(fake_res['flux'])**2 + poiss_unc**2)
+            fake_res['flux_diff']/=star_flux
+            fake_res['flux_diff']*=100
+            fake_res['fluxerror']/=star_flux
+            fake_res['fluxerror']*=100
+            
+            fake_res = fake_res[np.abs(fake_res['flux_diff'])<10] # cut crazy outliers, probably hitting mask
+            plt.errorbar(np.arange(0,len(fake_res),1),fake_res['flux'],yerr=fake_res['fluxerror'],fmt='.')
+            plt.ylabel('percent flux difference')
+            plt.xlabel('star index')
+            plt.show()
+            
+            
             if self.dcmpfilename is not None:
                 try:
                     try:
