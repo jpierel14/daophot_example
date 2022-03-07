@@ -489,7 +489,7 @@ def calc_bkg(data,mask=None,fill_value = 0,var_bkg=False):
     else:
 
         std = bkgrms(data)
-        bkg = mmm_bkg(data).astype(float)
+        bkg = float(mmm_bkg(data))
 
         data_bkgsub = data.copy().astype(float)
         data_bkgsub -= bkg
