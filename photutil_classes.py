@@ -300,7 +300,6 @@ class dao_BasicPSFPhotometry:
 
                 init_guesses['flux_0'] = aperture_photometry(
                     image, apertures)['aperture_sum']
-
             # if extra_output_cols have been given, check whether init_guesses
             # was supplied with extra_output_cols pre-attached and populate
             # columns not given with NaNs
@@ -421,9 +420,14 @@ class dao_BasicPSFPhotometry:
                 w = None
             else:
                 w = image_weights[usepixel]
+            #import matplotlib.pyplot as plt
+            #plt.imshow(image[usepixel].reshape(self.fitshape))
+            #plt.show()
+            #print(image.shape,np.nansum(image[usepixel]),len(np.where(usepixel)[0]))
             fit_model = self.fitter(group_psf, x[usepixel], y[usepixel],
-                                    image[usepixel],
-                                    weights = w,maxiter=20)#,maxiter=200)#,acc=1e-06)
+                                    image[usepixel])
+                                    #weights = w,maxiter=100)#,maxiter=200)#,acc=1e-06)
+            #print(fit_model)
             param_table = self._model_params2table(fit_model,
                                                    star_groups.groups[n])
             result_tab = vstack([result_tab, param_table])

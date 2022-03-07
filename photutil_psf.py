@@ -69,11 +69,14 @@ def create_pixregionfile(x,y,regionname,color,coords='image'):
     #     return (ra_wcs,dec_wcs,flux)
         f.close()
 
-def getPS1cat4table ():
+def getPS1cat4table (ra,dec):
 # Assume a table of observations, check RA/DEC to make sure overlapping
-    ra = '0:57:30.673'
-    dec = '+30:14:19.993'
-    c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree), frame='icrs')
+    #ra = '0:57:30.673'
+    #dec = '+30:14:19.993'
+    try:
+        c = SkyCoord(ra, dec, unit=u.degree, frame='icrs')
+    except:
+        c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree), frame='icrs')
     
 
     # Download a catalog for the first coordinate with a large enough radius to
@@ -151,7 +154,7 @@ def compare_phot(ra1, dec1, ra2, dec2): #matches two catalogs
     cf = SkyCoord(ra=ra1*u.degree, dec=dec1*u.degree)
     catalogf = SkyCoord(ra=ra2*u.degree, dec=dec2*u.degree)
 
-    max_sep = 5.0 * u.arcsec
+    max_sep = 1.0 * u.arcsec
     idxf, d2df, d3df = cf.match_to_catalog_3d(catalogf)
     sep_constraintf = d2df < max_sep
     c_matchesf = cf[sep_constraintf]
@@ -164,18 +167,24 @@ def calc_zpt(mag_catalog, flux,raf,decf,racat,deccat):
     
     notnanflux=~np.isnan(flux)
     magcat=np.asarray(magcat,dtype=float)
-    
+
     mageas=-2.5*np.log10(flux[boolval])
     zpt=magcat-mageas
-    clipped=sigma_clip(zpt, sigma=3, maxiters=5)
+    clipped=sigma_clip(zpt, sigma=3, maxiters=5,masked=False)
     
     return (np.mean(clipped))
 
 def rms(mag1,mag2):
     residuals=mag1-mag2
+    print('before clip',len(residuals))
+    residuals_sc=sigma_clip(residuals, sigma=3, maxiters=5,masked=False)
+    
     notnan=~np.isnan(residuals)
     residuals=residuals[notnan]
-    return(np.std(residuals))
+    notnan_sc=~np.isnan(residuals_sc)
+    residuals_sc=residuals_sc[notnan_sc]
+    print('after clip',len(residuals_sc))
+    return(np.std(residuals),np.std(residuals_sc),len(residuals)-len(residuals_sc))
 
 def analyzedcmp (filename):
 #     zp = fits.getval(filename,'ZPTMAG')
@@ -222,52 +231,60 @@ def analyzedcmp (filename):
     
 
 def residuals_extendedness_plot_PS1(phot,fits_fname,mag_PS,magerr_PS,ra_PS,dec_PS,extendedness,ra_PSdcmp,
-        dec_PSdcmp,viziertable,ravizierps1,decvizierps1,label=None):
+        dec_PSdcmp,viziertable,ravizierps1,decvizierps1,filt,apflux,label=None):
     if label is None:
         label = ''
 
 
     raphot,decphot=frompixtoradec(phot['X'],phot['Y'],fits_fname)
-    zpt=calc_zpt(viziertable['PS1_g'],phot['flux'],raphot,decphot,ravizierps1,decvizierps1)
+    zpt=calc_zpt(viziertable['PS1_%s'%filt],phot['flux'],raphot,decphot,ravizierps1,decvizierps1)
+    apzpt=calc_zpt(viziertable['PS1_%s'%filt],apflux['flux'],raphot,decphot,ravizierps1,decvizierps1)
     mag=-2.5*np.log10(phot['flux'])+zpt
     magerr=2.5*0.434*(phot['fluxerror']/phot['flux'])
+    apmag=-2.5*np.log10(apflux['flux']).flatten()+apzpt
+
+    apmagerr=2.5*0.434*(apflux['fluxerror']/apflux['flux']).flatten()
     boolval,idx,d2d=compare_phot(raphot,decphot,ra_PSdcmp,dec_PSdcmp)
     
     mag= mag[boolval]
     magerr=magerr[boolval]
+    apmag = apmag[boolval]
+    apmagerr = apmagerr[boolval]
     raphot=raphot[boolval]
     decphot=decphot[boolval]
-    
-    
+
     extendedness=extendedness[idx][boolval]
     
     boolval,idx,d2d=compare_phot(raphot,decphot,ra_PS,dec_PS)
     
     mag= mag[boolval]
     magerr=magerr[boolval]
+    apmag = apmag[boolval].flatten()
+    apmagerr = apmagerr[boolval]
     extendedness=extendedness[boolval]
-    mag_PS=mag_PS[idx][boolval]
+    mag_PS=mag_PS[idx][boolval].flatten()
     magerr_PS=magerr_PS[idx][boolval]
     magerr_PS=np.asarray(magerr_PS,float)
     
-    
+    apindex=np.argwhere(~np.isnan(apmag-mag_PS))
     index=np.argwhere(~np.isnan(mag-mag_PS))
     magerr=np.asarray(magerr)
     magerr_PS=np.asarray(magerr_PS)
-    
-    
-    
-    
+
     
 #     plt.errorbar(extendedness[index],(mag-mag_ap)[index],yerr=np.sqrt(magerr**2+magerr_ap**2)[index],label='{0}; RMS: {1:.3f}. {2} stars'.format(file,rms(mag_ap[index],mag[index]),len(mag[index])),marker='o',ls='none',capsize=4)
-    plt.errorbar(extendedness,(mag-mag_PS),yerr=np.sqrt(magerr**2+magerr_PS**2),label='{0}; RMS: {1:.3f}. {2} stars'.format(label,rms(mag_PS,mag),len(mag)),marker='o',ls='none',capsize=4)
-
-#     A = np.vstack([extendedness[index], np.ones(len(extendedness[index]))]).T
-    
-#     m, c = np.linalg.lstsq(A, mag-mag_ap, rcond=None)[0]
+    print('epsf')
+    phot_rms = rms(mag_PS,mag)
+    plt.errorbar(extendedness,(mag-mag_PS),yerr=np.sqrt(magerr**2+magerr_PS**2),
+                        label='{0}; RMS: {2:.3f} (clipping {1} stars={3:.3f}). {4} stars total'.format(label,phot_rms[2],phot_rms[0],phot_rms[1],len(mag)),marker='o',ls='none',capsize=4)
+    print('apmag')
+    ap_rms = rms(mag_PS,apmag)
+    plt.errorbar(extendedness,(apmag-mag_PS),yerr=np.sqrt(apmagerr**2+magerr_PS**2),
+        label='{0}; RMS: {2:.3f} (clipping {1} stars={3:.3f}). {4} stars total'.format('ap.',ap_rms[2],ap_rms[0],ap_rms[1],len(apmag)),marker='o',ls='none',capsize=4)
     res=mag-mag_PS
     res=np.asarray(res)
-
+    apres = apmag-mag_PS
+    apres = np.asarray(apres)
     def func(x, a, b):
         y = a*x + b
         return y
@@ -279,12 +296,19 @@ def residuals_extendedness_plot_PS1(phot,fits_fname,mag_PS,magerr_PS,ra_PS,dec_P
 #     xdata=extendedness[index].flatten()
     xdata=np.linspace(-60,85,100)
     
-    plt.plot(xdata, func(xdata, *popt),label='{0}, slope: {1:.5f}'.format(label,popt[0]))    
+    plt.plot(xdata, func(xdata, *popt),label='{0}, slope: {1:.5f}'.format(label,popt[0]))
+ 
+    popt, pcov = curve_fit(func, xdata = extendedness[apindex].flatten(), ydata = apres[apindex].flatten())
+    #print(file,popt,'rms:',rms(mag_PS,mag))
+#     xdata=extendedness[index].flatten()
+    xdata=np.linspace(-60,85,100)
+    
+    plt.plot(xdata, func(xdata, *popt),label='{0}, slope: {1:.5f}'.format('ap.',popt[0]))    
 #     plt.gca().invert_yaxis()
 
     plt.xlabel('extendedness',fontsize=12)
-    plt.ylabel('photutils mag - PS',fontsize=12)
-    plt.ylim((-.1,.1))
+    plt.ylabel('photutils mag - PS (%s band)'%filt,fontsize=12)
+    plt.ylim((-.2,.2))
 
     plt.axvline(x=0,c='k',linestyle='--')
     plt.axhline(y=0,c='k',linestyle='--')
@@ -437,7 +461,7 @@ def display_psf_grid(grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     plt.savefig('out_dir/psf_diff_grid.png',format='png')
     plt.close()
 
-def calc_bkg(data,var_bkg=False):
+def calc_bkg(data,mask=None,fill_value = 0,var_bkg=False):
     from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
 
     bkgrms = MADStdBackgroundRMS()
@@ -448,16 +472,20 @@ def calc_bkg(data,var_bkg=False):
         from astropy.stats import SigmaClip
         
         sigma_clip = SigmaClip(sigma=3.)
-        coverage_mask = (data == 0)
-
-        bkg = Background2D(data, (100, 100), filter_size=(3, 3), sigma_clip=sigma_clip, bkg_estimator=mmm_bkg,
-                           coverage_mask=coverage_mask, fill_value=0.0)
+        if mask is not None:
+            coverage_mask = (mask > 0) & (mask!=fill_value)
+            mask = (mask == fill_value)
+        else:
+            coverage_mask=None
+        bkg = Background2D(data, (50, 50), filter_size=(3, 3), sigma_clip=sigma_clip, bkg_estimator=mmm_bkg,
+                           coverage_mask=coverage_mask,mask=mask,fill_value=np.nan)
+        print(np.max(data),np.nanmax(bkg.background))
 
         data_bkgsub = data.copy()
-        data_bkgsub = data_bkgsub - bkg.background_rms
+        data_bkgsub = data_bkgsub - bkg.background#_rms
 
-        _, _, std = sigma_clipped_stats(data_bkgsub)
-        return data_bkgsub, bkg.background_rms,std
+        #_, _, std = sigma_clipped_stats(data_bkgsub)
+        return data_bkgsub, bkg.background,None#std#_rms,std
     else:
 
         std = bkgrms(data)
@@ -602,6 +630,13 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                           help='Number of fit iterations for the EPSFBuilder (default=%default')
         parser.add_option('--dcmpfilename'  , default=None, type="str",
                           help='Filename for a dcmp file (default=%default')
+        parser.add_option('--plantFakes'  , default=False, action="store_true",
+                          help='Go through a fake star planting routine (default=%default)')
+        parser.add_option('--maskFill'  , default=1, type = float,
+                          help='The mask value indicating missing data (e.g., chip gap) (default=%default)')
+        parser.add_option('--catmagtransform'  , default=None, type = "str",
+                          help='A file providing transformed mags to compare against. (default=%default)')
+        
         return(parser)
 
     def getmasknoise(self,image,noiseimfilename=None,maskimfilename=None,bpmval=None,
@@ -828,6 +863,26 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         self.brightx = self.sexdict_psfstars['x'][bright]
         self.brighty = self.sexdict_psfstars['y'][bright]
 
+        unmaskednormal = []
+        masky,maskx = np.shape(self.image_mask)
+        for b in np.arange(0,len(self.sexdict_psfstars['x']),1):
+            coords0,coords1 = \
+                self.sexdict_psfstars['x'][b].astype(int),self.sexdict_psfstars['y'][b].astype(int)
+
+
+            n1,n2,n3,n4 = coords1-14,coords1+15,coords0-14,coords0+15
+            if n1 < 0: n1 = 0
+            if n3 < 0: n3 = 0
+            if n2 > masky: n2 = masky
+            if n4 > maskx: n4 = maskx
+            if np.sum(self.image_mask[n1:n2,n3:n4]) == 0:
+                sep = np.sqrt((self.sexdict_psfstars['x'][b] - xposall)**2. + \
+                                  (self.sexdict_psfstars['y'][b] - yposall)**2.)
+                if len (sep) < 2 or np.sort(sep)[1] > self.contamradius*fwhm:
+                    unmaskednormal += [b]
+        unmaskednormal = np.array(unmaskednormal)
+        self.unmaskednormalx = self.sexdict_psfstars['x'][unmaskednormal]
+        self.unmaskednormaly = self.sexdict_psfstars['y'][unmaskednormal]
         # Centroid the stars
 
     def runsex(self,imagefilename,noiseimfilename,maskimfilename,sexstring):
@@ -1144,7 +1199,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             zeropoint=zeropoint)
         if not isinstance(sky, (list,tuple,np.ndarray)): sky = np.array([sky])
         # Now the PSF fitting.
-
+        print(self.image)
         pk = pkfit_norecent_noise.pkfit_class(self.image, gauss, psf, self.rdnoise,
                                               self.gain, self.image_noise,
                                               self.image_mask)
@@ -1232,7 +1287,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             maxpix[i] = np.max(self.image[iy-4:iy+5, ix-4:ix+5])
 
         # TODO: this would be a great place to use a Pandas DataFrame.
-        print(apflux)
+        print(apflux,flux)
         self.pkdict = {
             'x': xpos,
             'y': ypos,
@@ -1451,6 +1506,8 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         create_grid=False,npsf=9):
         from photutils import EPSFBuilder, GriddedPSFModel
         from photutils.psf import DAOGroup, extract_stars
+        from astropy.visualization import imshow_norm, MinMaxInterval, SqrtStretch, ZScaleInterval, ImageNormalize
+        from copy import copy,deepcopy
         self.oversample=oversample
         self.num_psfs = npsf
         data = self.image
@@ -1465,11 +1522,24 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         stars_tbl['x'] = x#[mask]
         stars_tbl['y'] = y#[mask]
         
-        data_bkgsub,_, _ = calc_bkg(data)
-        
+        data_bkgsub,bk_calculated, _ = calc_bkg(data,var_bkg=True,mask = self.image_mask,fill_value=self.maskFill)
+        print(np.nanmax(data_bkgsub),np.nanmax(bk_calculated))
+        temp = deepcopy(self.fits_image)
+        temp[0].data = data_bkgsub
+        temp.writeto('out_dir/bk_sub.fits',overwrite=True)
+        temp = deepcopy(self.fits_image)
+        temp[0].data = bk_calculated
+        temp.writeto('out_dir/bk.fits',overwrite=True)
+        norm = ImageNormalize(data_bkgsub, interval=ZScaleInterval())
+        plt.imshow(data_bkgsub,norm=norm)
+        plt.savefig('out_dir/bk_sub')
+        plt.close()
+        plt.imshow(bk_calculated)
+        plt.savefig('out_dir/bk')
+        plt.close()
         nddata = NDData(data=data_bkgsub)
         
-        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters,norm_radius=norm_radius,recentering_boxsize=3,recentering_maxiters=40,
+        epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters,norm_radius=norm_radius,recentering_maxiters=50,
             progress_bar=False)    
         #create_grid=creat
         do_plot = True
@@ -1482,7 +1552,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             self.location_list = self._set_psf_locations(self.num_psfs)
             psf_arr = None 
             
-            kernel = astropy.convolution.Box2DKernel(width=self.oversample)
+            #kernel = astropy.convolution.Box2DKernel(width=self.oversample)
             n=0
             m=0
             meta = {'oversampling': self.oversample, 'grid_xypos': []}
@@ -1499,7 +1569,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                                                                                     stars_tbl['x']>=m*self.image.shape[1]/self.length),
                                                                     np.logical_and((n+1)*self.image.shape[0]/self.length>=stars_tbl['y'],
                                                                         stars_tbl['y']>=n*self.image.shape[0]/self.length)))[0]]
-                
+                print(xp,yp,len(temp_star_tbl))
                 # fig=plt.figure()
                 # ax=fig.gca()
                 # norm = simple_norm(self.image, 'sqrt', percent=99.)
@@ -1511,8 +1581,13 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 # plt.close()
                 
                 stars = extract_stars(nddata, temp_star_tbl, size=size)
-                epsf, fitted_stars = epsf_builder(stars)     
-        
+                epsf, fitted_stars = epsf_builder(stars)  
+
+                #print(size,epsf.data.shape,int(self.length**2))
+                #plt.imshow(epsf.data*self.oversample**2)  
+                #plt.show() 
+                #sys.exit()
+                #print(fitted_stars[0].flux)
                 all_stars_x = np.append(all_stars_x,fitted_stars.center_flat[:,0])
                 all_stars_y = np.append(all_stars_y,fitted_stars.center_flat[:,1])
                 #meta['grid_xypos'].append((np.mean(temp_star_tbl['x']),np.mean(temp_star_tbl['y'])))
@@ -1520,9 +1595,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 if psf_arr is None:
                     psf_arr = np.empty((int(self.length**2), int(epsf.data.shape[0]), 
                         int(epsf.data.shape[1])))
-
-                psf_arr[i, :, :] = epsf.data
-            psf_arr *= self.oversample**2
+                #print(np.sum(epsf.data),np.sum(epsf.data / self.oversample**2))
+                #sys.exit()
+                psf_arr[i, :, :] = epsf.data# * self.oversample**2
+            #psf_arr *= self.oversample**2
             
             meta["NUM_PSFS"] = (self.num_psfs, "The total number of fiducial PSFs")
             meta["OVERSAMP"] = (self.oversample, "Oversampling factor for FFTs in computation")
@@ -1545,7 +1621,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         else:
             #epsf_builder = EPSFBuilder(oversampling=oversample, maxiters=iters, progress_bar=True)'
 
-            print(size,stars_tbl)
+            #print(size,stars_tbl)
             stars = extract_stars(nddata, stars_tbl, size=size)
             #fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(20, 20),
             #            squeeze=True)
@@ -1555,13 +1631,14 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             #    ax[i].imshow(stars[i], norm=norm, origin='lower', cmap='viridis')
             #plt.show()
             epsf_model, fitted_stars = epsf_builder(stars)
+            #print(fitted_stars)
             all_stars_x = fitted_stars.center_flat[:,0]
             all_stars_y = fitted_stars.center_flat[:,1]
             #norm = simple_norm(epsf_model.data, 'log', percent=99.)
             #plt.imshow(epsf_model.data, norm=norm, origin='lower', cmap='viridis')
             #plt.show()
             
-        return epsf_model,Table({'x_0':all_stars_x,'y_0':all_stars_y})
+        return epsf_model,Table({'x_0':all_stars_x,'y_0':all_stars_y}),data_bkgsub,fitted_stars
 
 
     def doPhotutilsePSF(self,psfstarlist):
@@ -1774,8 +1851,19 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         from photutils.psf import DAOGroup
 
         fwhm = np.median(self.sexdict['fwhm_image'][self.sexdict['fwhm_image'] > 0])
+        sources = Table()
+        if self.plantFakes:
+            sources['x_mean'] = psfstarlist['x_0']# xpsf #
+            sources['y_mean'] = psfstarlist['y_0']# # ypsf #
+        else:
+            self.getPSFstars(psfstarlist)
+            sources['x_mean'] = self.sexdict['x'] #self.unmaskednormalx#  #self.brightx
+            sources['y_mean'] = self.sexdict['y'] #self.unmaskednormaly#   #self.brighty
 
-        #self.getPSFstars(psfstarlist)
+        #sources = sources[5:7]
+        #sources.add_row(sources[0])
+        #sources.remove_rows([1])
+        print('Fitting %i sources...'%len(sources))
         self.brightfwhm = fwhm
         if not self.brightfwhm.size:
             # This can happen, rarely.
@@ -1787,29 +1875,68 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         if self.verbose:
             print('Image FWHM for GETPSF set to %.1f pixels'%self.fwhm)
 
-        sources = Table()
         
-        sources['x_mean'] = psfstarlist['x_0']#self.sexdict['x'] # xpsf #
-        sources['y_mean'] = psfstarlist['y_0']#self.sexdict['y'] # ypsf #
-        print(sources)
+
+        #print(sources)
         pos = Table(names=['x_0', 'y_0'], data=[sources['x_mean'],sources['y_mean']])
 
         skyrad = [self.skyrad*self.fwhm, (self.skyrad+3.0)*self.fwhm]
 
-        fitter = LevMarLSQFitter()
+        fitter = LevMarLSQFitter()# SLSQPLSQFitter()
         oversample_rate = self.epsfOversample
         if self.epsfFitradius is None:
             epsf_size = self.fwhm*5
         else:
             epsf_size = self.epsfFitradius
-
-        psf_model,fitted_star_locs = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
-            iters=self.nepsfiters,norm_radius=epsf_size,npsf=self.epsfgridsize**2,create_grid=self.doepsfgrid)
-        print(fitted_star_locs)
-        self.gridded_epsf = psf_model
-        #pickle.dump(self.gridded_epsf,open('out_dir/psf_model.pkl','wb'))
+        import photutils
+        from astropy.nddata.utils import add_array, extract_array
+        from photutils.psf.utils import _extract_psf_fitting_names
         
-        bk_sub,bk_calc,std = calc_bkg(self.image,var_bkg=True)
+        psf_model,fitted_star_locs,im_sub_bk,star_obj = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
+            iters=self.nepsfiters,norm_radius=self.aprad*self.fwhm,npsf=self.epsfgridsize**2,create_grid=self.doepsfgrid)
+        
+        
+        
+        #print(fitted_star_locs)
+        self.gridded_epsf = psf_model
+        if False:
+            indices = np.indices(self.image.shape)
+            xname, yname, fluxname = _extract_psf_fitting_names(psf_model)
+            subbeddata = im_sub_bk.astype(float)#self.image.astype(float)
+            fit = star_obj#photutils.psf.EPSFFitter(fitter)(psf_model,star_obj)
+            posflux = Table([fit.center_flat[:,0],fit.center_flat[:,1],fit.flux],names=['x_fit','y_fit','flux_fit'])
+            for row in posflux:
+                subshape = [int(epsf_size)]*2
+                x_0, y_0 = row['x_fit'], row['y_fit']
+
+                # float dtype needed for fill_value=np.nan
+                y = extract_array(indices[0].astype(float), subshape, (y_0, x_0))
+                x = extract_array(indices[1].astype(float), subshape, (y_0, x_0))
+
+                getattr(psf_model, xname).value = x_0
+                getattr(psf_model, yname).value = y_0
+                getattr(psf_model, fluxname).value = row['flux_fit']
+                import matplotlib.pyplot as plt
+                from astropy.visualization import imshow_norm, MinMaxInterval, SqrtStretch, ZScaleInterval, ImageNormalize
+                fig,ax=plt.subplots(1,3)
+                subshape = list(subshape)
+                subshape[0] = np.ceil(subshape[0]/2)
+                norm = ImageNormalize(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])], interval=ZScaleInterval())
+                ax[0].imshow(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])],norm=norm)
+                ax[1].imshow(psf_model(x, y),norm=ImageNormalize(psf_model(x, y), interval=ZScaleInterval()))
+                #subshape[0]*=2
+                #print(subbeddata)
+                #print(-1.*psf_model(x, y))
+                subbeddata = add_array(subbeddata, -1.*psf_model(x, y), (y_0, x_0))
+                print(np.nanmedian(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])]),
+                    np.nanmax(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])]))
+                subshape[0]*=1.5
+                norm = ImageNormalize(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])], interval=ZScaleInterval())
+                ax[2].imshow(subbeddata[int(y_0-subshape[0]):int(y_0+subshape[0]),int(x_0-subshape[0]):int(x_0+subshape[0])],norm=norm)
+                plt.show()
+            #pickle.dump(self.gridded_epsf,open('out_dir/psf_model.pkl','wb'))
+            sys.exit()
+        _,_,std = calc_bkg(self.image,var_bkg=False,mask = self.image_mask,fill_value=self.maskFill)
 
         th=10
         from astropy.stats import SigmaClip
@@ -1826,22 +1953,26 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         if fitshape%2==0:
             fitshape+=1
-        print('FITSHAPE:',fitshape)
+        print('FITSHAPE:',fitshape,'APRAD:',min(self.aprad*self.fwhm,epsf_size/2))
         phot = dao_IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
-                                              bkg_estimator=bkg, psf_model=psf_model,
+                                              bkg_estimator=None, psf_model=psf_model,
                                               fitter=fitter,
                                               niters=1, fitshape=[fitshape]*2, 
-                                              aperture_radius=min(self.aprad*self.fwhm,epsf_size/2), 
+                                              aperture_radius=self.aprad*self.fwhm, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         from photutils.utils import calc_total_error
 
-        self.outputcat_dao = phot(self.image,init_guesses=fitted_star_locs,
+        self.outputcat_dao = phot(im_sub_bk,init_guesses=fitted_star_locs,
             image_weights=1/np.sqrt(self.image_noise))
-        print(self.outputcat_dao)
+        #print(self.outputcat_dao)
         self.outputcat_dao.rename_column('x_fit','X')
         self.outputcat_dao.rename_column('y_fit','Y')
+        create_pixregionfile(self.outputcat_dao['X'],self.outputcat_dao['Y'],'out_dir/fit_stars.reg','green')
         self.outputcat_dao.rename_column('flux_fit','flux')
-        self.outputcat_dao.rename_column('flux_unc','fluxerror')
+        try:
+            self.outputcat_dao.rename_column('flux_unc','fluxerror')
+        except:
+            self.outputcat_dao['fluxerror'] = 0
         pyfits.PrimaryHDU(phot.get_residual_image(),header=self.hdr).writeto('out_dir/test_residual.fits',overwrite=True)
         self.outputcat_dao.write('out_dir/test_phot_dao.dat',format='ascii',overwrite=True)
         xfit,yfit,fluxfit,fluxerr = np.loadtxt('out_dir/test_phot_dao.dat',unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
@@ -1862,6 +1993,36 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                         dummylist[i]), file=fout)
         fout.close()
     
+    def photutils_aperture(self,starlist,ap_rad=None):
+        from photutils.aperture import CircularAperture,CircularAnnulus
+        from photutils.aperture import aperture_photometry
+        fluxes = []
+        fluxerrs = []
+        try:
+            xvals = np.array(starlist["X"])
+            yvals = np.array(starlist['Y'])
+        except:
+            xvals = np.array(starlist["x"])
+            yvals = np.array(starlist['y'])
+        if ap_rad is None:
+            ap_rad = self.fwhm*2
+        for x,y in zip(xvals,yvals):
+            
+            aperture = CircularAperture(np.array([x,y]), r=ap_rad)
+            mask_res = aperture_photometry(self._non_fake_image,aperture)['aperture_sum']
+
+            annulus_aperture = CircularAnnulus(np.array([x,y]), r_in=ap_rad*1.5, r_out=ap_rad*3)
+            annulus_masks = annulus_aperture.to_mask(method='center')
+            annulus_data = annulus_masks.multiply(self._non_fake_image)
+            mask = annulus_masks.data
+            annulus_data_1d = annulus_data[mask > 0]
+            mean_sigclip, _, _ = sigma_clipped_stats(annulus_data_1d)
+            apers = [aperture, annulus_aperture]
+            phot_table = aperture_photometry(self._non_fake_image,apers,error=np.sqrt(self.image_noise))
+            background = mean_sigclip * aperture.area
+            fluxes.append(phot_table['aperture_sum_0']-background)
+            fluxerrs.append(phot_table['aperture_sum_err_0'])
+        self.aperture_result = Table([xvals,yvals,fluxes,fluxerrs],names=['X','Y','flux','fluxerror'])
 
     def plant_fake_stars(self,psf_model=None,xylocations=None,out_filename=None,
                                              fluxes=None,nplants=50,star_sep=15,
@@ -1932,7 +2093,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             print('splitting to %i cpus'%ncpus)
             inds = np.linspace(0,len(sources),ncpus).astype(int)
 
-            #for i in range(len(inds)-1):
+            #for i in range(lcden(inds)-1):
             #    model_ims.append(temp_plant([i,inds,self.image.shape,psf_model,sources]))
             model_ims = pyParz.foreach(np.arange(0,len(inds)-1,1),temp_plant,args=[inds,self._non_fake_image.shape,psf_model,sources])
             plant_im = np.zeros(self._non_fake_image.shape)
@@ -1985,10 +2146,12 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         # load the image
         self._non_fake_fits_image = fits.open(imagefilename.replace('_fake.fits','.fits'))
+        
         (self._non_fake_image,self._non_fake_hdr)=pyfits.getdata(imagefilename.replace('_fake.fits','.fits'),0,header=True)
         self.fits_image = fits.open(imagefilename)
+        
         (self.image,self.hdr)=pyfits.getdata(imagefilename,0,header=True)
-
+        self.image = self.image.astype(float)#/43.
         # get the mask and noise
         (self.image_noise,self.image_mask) = self.getmasknoise(self.image,noiseimfilename=noiseimfilename,maskimfilename=maskimfilename,
                                                                bpmval = self.bpmval,
@@ -2006,7 +2169,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #self.runsex(imagefilename,noiseimfilename,maskimfilename,sexstring)
         #sys.exit()
 
-        self.sexdict = pickle.load(open('data_dir/newsex_ps.pkl','rb'))
+        #self.sexdict = pickle.load(open('data_dir/newsex_ps.pkl','rb'))
+        #self.sexdict = pickle.load(open('../dao_swope/newsex_ps.pkl','rb'))
+        self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope.pkl','rb'))
+        #self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope_more.pkl','rb'))
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
 
         if method == 'epsf':
@@ -2024,41 +2190,57 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 fake_out_name = imagefilename
             else:
                 fake_out_name = imagefilename.replace('.fits','_fake.fits')
-            self.plant_fake_stars(pickle.load(open('out_dir/psf_model.pkl','rb')),out_filename=fake_out_name,
-                                        nplants=100,plant_flux=star_flux)
-            if '_fake' not in imagefilename:
-                print('make sure to now run with %s as your image name in test_dao.sh'%imagefilename.replace('.fits','_fake.fits'))
-                sys.exit()
-            self.doPhotutilsDAO(Table.read('out_dir/fake_plants.cat',format='ascii'))
+            if self.plantFakes:
+                self.plant_fake_stars(pickle.load(open('out_dir/psf_model.pkl','rb')),out_filename=fake_out_name,
+                                           nplants=100,plant_flux=star_flux)
+                if '_fake' not in imagefilename:
+                   print('make sure to now run with %s as your image name in test_dao.sh'%imagefilename.replace('.fits','_fake.fits'))
+                   sys.exit()
+                self.doPhotutilsDAO(Table.read('out_dir/fake_plants.cat',format='ascii'))
 
-            fake_res = Table.read('out_dir/outputcat_dao',format='ascii')
-            fake_res['flux_diff'] = fake_res['flux']-star_flux
-            print('fake recovery precision (raw flux): %.2f'%(np.std(fake_res['flux_diff'])))
-            #### REAL UNCERTAINTY CALC,TODO ####
-            #fake_res['fluxerror'] = np.sqrt(np.std(fake_res['flux'])**2 + poiss_unc**2)
-            fake_res['flux_diff']/=star_flux
-            fake_res['flux_diff']*=100
-            fake_res['fluxerror']/=star_flux
-            fake_res['fluxerror']*=100
-            
-            fake_res = fake_res[np.abs(fake_res['flux_diff'])<10] # cut crazy outliers, probably hitting mask
-            plt.errorbar(np.arange(0,len(fake_res),1),fake_res['flux'],yerr=fake_res['fluxerror'],fmt='.')
-            plt.ylabel('percent flux difference')
-            plt.xlabel('star index')
-            plt.show()
-            
-            
+                fake_res = Table.read('out_dir/outputcat_dao',format='ascii')
+                fake_res['flux_diff'] = fake_res['flux']-star_flux
+                print('fake recovery precision (raw flux): %.2f'%(np.std(fake_res['flux_diff'])))
+                #### REAL UNCERTAINTY CALC,TODO ####
+                #fake_res['fluxerror'] = np.sqrt(np.std(fake_res['flux'])**2 + poiss_unc**2)
+                fake_res['flux_diff']/=star_flux
+                fake_res['flux_diff']*=100
+                fake_res['fluxerror']/=star_flux
+                fake_res['fluxerror']*=100
+                
+                fake_res = fake_res[np.abs(fake_res['flux_diff'])<10] # cut crazy outliers, probably hitting mask
+                plt.errorbar(np.arange(0,len(fake_res),1),fake_res['flux'],yerr=fake_res['fluxerror'],fmt='.')
+                plt.ylabel('percent flux difference')
+                plt.xlabel('star index')
+                plt.show()
+                sys.exit()
+            else:
+                self.doPhotutilsDAO(psfstarlist)
+            print('Running aperture photometry...')
+            self.photutils_aperture(self.outputcat_dao,ap_rad=5)
+
             if self.dcmpfilename is not None:
+                from astropy import wcs
                 try:
                     try:
                         viziertable = pickle.load(open('out_dir/viziertable.out','rb'))
                     except:
-                        viziertable=getPS1cat4table()
+                        im_sc = wcs.WCS(self.fits_image[0].header).pixel_to_world(self.fits_image[0].header['NAXIS1']/2,self.fits_image[0].header['NAXIS2']/2)
+                        viziertable=getPS1cat4table(im_sc.ra.value,im_sc.dec.value)
                         pickle.dump(viziertable,open('out_dir/viziertable.out','wb'))
-                    ravizierps1=viziertable['ra_ps1']
-                    decvizierps1=viziertable['dec_ps1']
-                    ps1gmag=viziertable['PS1_g']
-                    ps1gmagerr=viziertable['PS1_g_err']
+                    filt = 'i'
+                    if self.catmagtransform is not None:
+                        self.catmagtransform = Table.read(self.catmagtransform,format='ascii')
+                        ravizierps1=self.catmagtransform['ra']
+                        decvizierps1=self.catmagtransform['dec']
+                        ps1gmag=self.catmagtransform[filt]
+                        ps1gmagerr=self.catmagtransform['d%s'%filt]
+                        viziertable = Table([ravizierps1,decvizierps1,ps1gmag,ps1gmagerr],names=['ra_ps1','dec_ps1','PS1_%s'%filt,'PS1_%s_err'%filt])
+                    else:    
+                        ravizierps1=viziertable['ra_ps1']
+                        decvizierps1=viziertable['dec_ps1']
+                        ps1gmag=viziertable['PS1_%s'%filt]
+                        ps1gmagerr=viziertable['PS1_%s_err'%filt]
 
                     ravizierps1=np.asarray(ravizierps1)
                     decvizierps1=np.asarray(decvizierps1)
@@ -2075,11 +2257,11 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                     plt.figure(figsize=(16,8))
 
                     residuals_extendedness_plot_PS1(self.outputcat_dao,imagefilename,ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
-                        viziertable,ravizierps1,decvizierps1,label='Gridded ePSF')
+                        viziertable,ravizierps1,decvizierps1,filt,self.aperture_result,label='Gridded ePSF')
                     #dave's code
                     #residuals_extendedness_plot_PS1('daopy_42.txt',ps1gmag,ps1gmagerr,ravizierps1,decvizierps1,extendedness,ra_PSdcmp,dec_PSdcmp,
                     #    viziertable,ravizierps1,decvizierps1,label='dao.py')
-                    plt.savefig('out_dir/phot_ext_comp_ps.png',format='png')
+                    plt.savefig('out_dir/phot_ext_comp_%s.png'%filt,format='png')
                     plt.close()
                     plt.figure(figsize=(16,8))
                     
@@ -2093,7 +2275,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                     #plt.savefig('phot_ext_comp_ap.png',format='png')
                     #plt.close()
                     #new = Table.read('outputcat_dao',format='ascii')
-                except:
+                except RuntimeError:
                     print('Plotting failed!')
 
             plt.scatter(-2.5*np.log10(self.outputcat_dao['flux']),self.outputcat_dao['flux']/self.outputcat_dao['fluxerror'])
@@ -2232,6 +2414,9 @@ if __name__=='__main__':
     dao.epsfgridsize = options.epsfgridsize
     dao.nepsfiters = options.nepsfiters
     dao.dcmpfilename = options.dcmpfilename
+    dao.plantFakes = options.plantFakes
+    dao.maskFill = options.maskFill
+    dao.catmagtransform = options.catmagtransform
     try:
         dao.gain = pyfits.getval(imagefilename,'GAIN')
     except:
