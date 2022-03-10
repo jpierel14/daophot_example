@@ -1574,15 +1574,15 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         daofind = dao_DAOStarFinder(threshold=np.median(bkg_rms)*10,fwhm=self.fwhm,xycoords=np.array([stars_tbl['x'],stars_tbl['y']]).T)
         dao_stars = daofind(data_bkgsub)
-        to_remove_sharp = sigma_clip(dao_stars['sharpness'],sigma=3,maxiters=5)
-        to_remove_round = sigma_clip(dao_stars['roundness2'],sigma=3,maxiters=5)
+        to_remove_sharp = sigma_clip(dao_stars['sharpness'],sigma=5,maxiters=5)
+        to_remove_round = sigma_clip(dao_stars['roundness2'],sigma=5,maxiters=5)
         
 
         print('%i stars removed due to sharpness'%len(to_remove_sharp[to_remove_sharp.mask]))
         print('%i stars removed due to roundness'%len(to_remove_round[to_remove_round.mask]))
         print(len(stars_tbl),len(to_remove_sharp),len(to_remove_round),len(np.where(~to_remove_sharp.mask)[0]),len(np.where(to_remove_sharp.mask)[0]),
             len(np.where(~to_remove_round.mask)[0]),len(np.where(to_remove_round.mask)[0]))
-        stars_tbl = stars_tbl[np.where(np.logical_and(~to_remove_sharp.mask,~to_remove_round.mask))[0]]
+        #stars_tbl = stars_tbl[np.where(np.logical_and(~to_remove_sharp.mask,~to_remove_round.mask))[0]]
         #plt.scatter(dao_stars['sharpness'],dao_stars['roundness2'],color='r')
         #plt.show()
         #sys.exit()
@@ -1620,7 +1620,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #plt.show()
         #sys.exit()
         epsf_builder = EPSFBuilder(oversampling=self.oversample, maxiters=iters,norm_radius=norm_radius,recentering_maxiters=100,
-            progress_bar=False)    
+            progress_bar=False,shape=[size]*2)    
         #create_grid=creat
         do_plot = True
         if create_grid:
@@ -1657,8 +1657,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                     if i%self.length<m:
                         n+=1
                     m = i%self.length
-                    xp = ((m+1)*self.image.shape[1]/self.length+m*self.image.shape[1]/self.length)/2
-                    yp = ((n+1)*self.image.shape[0]/self.length+n*self.image.shape[0]/self.length)/2
+
+                    xp = (m*self.image.shape[1]/self.length-1*m%2+(m+1)*self.image.shape[1]/self.length-1*m%2)/2
+                    yp = ((n+1)*self.image.shape[0]/self.length-1*n%2+n*self.image.shape[0]/self.length-1*n%2)/2
                     all_xp.append(xp)
                     all_yp.append(yp)
                 n=0
@@ -1683,6 +1684,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 plt.close()
                 self.location_list = kmeans.cluster_centers_
                 self.num_psfs = n_clusters
+
             for i, loc in enumerate(self.location_list):
                 if self.epsfgrid =='uniform':
                     if i%self.length<m:
@@ -1690,6 +1692,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                     m = i%self.length
                     xp = all_xp[i]#((m+1)*self.image.shape[1]/self.length+m*self.image.shape[1]/self.length)/2
                     yp = all_yp[i]#((n+1)*self.image.shape[0]/self.length+n*self.image.shape[0]/self.length)/2
+                    print(xp,yp)
                     meta['grid_xypos'].append((xp,yp))
                     to_keep = []
                     for j in range(len(stars_tbl)):
@@ -2091,11 +2094,12 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 sources['x_mean']=self.sexdict['x'][boolval][~residuals_sc.mask]
 
                 sources['y_mean']=self.sexdict['y'][boolval][~residuals_sc.mask]
-                fwhm = np.median(self.sexdict['fwhm_image'][boolval][~residuals_sc.mask])
+                
                 #sources = sources[np.where(apmag[~residuals_sc.mask]<19)[0]]
                 #sources['x_mean'] = self.sexdict['x'] #self.unmaskednormalx#  #self.brightx
                 #sources['y_mean'] = self.sexdict['y'] #self.unmaskednormaly#   #self.brighty
-                #sources = sources[np.where(apmag[~residuals_sc.mask]<19)[0]]
+                #sources = sources[np.where(apmag[~residuals_sc.mask]>18)[0]]
+                fwhm = np.median(self.sexdict['fwhm_image'][boolval][~residuals_sc.mask])
                 
             else:
                 sources['x_mean'] = self.sexdict['x'] #self.unmaskednormalx#  #self.brightx
@@ -2129,6 +2133,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             epsf_size = self.fwhm*5
         else:
             epsf_size = self.epsfFitradius
+
         import photutils
         from astropy.nddata.utils import add_array, extract_array
         from photutils.psf.utils import _extract_psf_fitting_names
@@ -2190,15 +2195,18 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         bkg = MMMBackground()
 
 
-        fitshape = int(epsf_size)
-
-        if fitshape%2==0:
-            fitshape+=1
-        print('FITSHAPE:',fitshape,'APRAD:',min(self.aprad*self.fwhm,epsf_size/2))
+        fitshape = psf_model.data.shape
+        if len(fitshape)==3:
+            fitshape = [fitshape[1],fitshape[2]]
+        if fitshape[0]%2==0:
+            fitshape[0]+=1
+        if fitshape[1]%2==0:
+            fitshape[1]+=1
+        print('FITSHAPE:',fitshape,'APRAD:', self.aprad*self.fwhm)
         phot = dao_IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=None, psf_model=psf_model,
                                               fitter=fitter,
-                                              niters=1, fitshape=[fitshape]*2, 
+                                              niters=1, fitshape=fitshape, 
                                               aperture_radius=self.aprad*self.fwhm, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         from photutils.utils import calc_total_error
@@ -2416,7 +2424,15 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope.pkl','rb'))
         #self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope_more.pkl','rb'))
         #self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope_imax.pkl','rb'))
-        self.sexdict = pickle.load(open('../dao_swope2/sex_PS_swope.pkl','rb'))
+        #self.sexdict = pickle.load(open('../dao_swope2/sex_PS_swope.pkl','rb'))
+        self.sexdict = pickle.load(open('../dao_swope2/sex_PS_swope_c2.pkl','rb'))
+
+        #self.sexdict = pickle.load(open('../dao_swope2/sex_PS_swope.pkl','rb'))
+        
+        # missingx = [x for x,y in zip(self.sexdict1['x'],self.sexdict1['y']) if (x not in self.sexdict['x'] or y not in self.sexdict['y'])]
+        # missingy = [y for x,y in zip(self.sexdict1['x'],self.sexdict1['y']) if (x not in self.sexdict['x'] or y not in self.sexdict['y'])]
+        # create_pixregionfile(missingx,missingy,'out_dir/missing.reg',color='green')
+        # sys.exit()
         self.sexdict = {key:np.array(self.sexdict[key]) for key in self.sexdict.keys()}
 
         if method == 'epsf':
