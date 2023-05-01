@@ -2,14 +2,13 @@
 from __future__ import print_function
 
 import sys, os,re,math
-sys.path.append(os.path.join(os.environ['PIPE_SRC'],'pythonscripts'))
+#sys.path.append(os.path.join(os.environ['PIPE_SRC'],'pythonscripts'))
 import optparse
 import numpy as np
 import scipy
-try:
-    import astropy.io.fits as pyfits
-except ImportError:
-    import pyfits
+
+import astropy.io.fits as pyfits
+
 import os
 
 if 'PIPE_SRC' in os.environ:
@@ -490,14 +489,14 @@ def display_psf_grid(name,grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4
             axes.shape = (1, 1)
 
         if scale == 'log':
-            norm = matplotlib.colors.LogNorm()
+            norm = matplotlib.colors.LogNorm(vmax=vmax, vmin=vmin)
         else:
-            norm = matplotlib.colors.Normalize()
+            norm = matplotlib.colors.Normalize(vmax=vmax, vmin=vmin)
 
         for ix in range(n):
             for iy in range(n):
                 i = ix*n+iy
-                im = axes[n-1-iy, ix].imshow(data[i], vmax=vmax, vmin=vmin, norm=norm)
+                im = axes[n-1-iy, ix].imshow(data[i], norm=norm)
                 axes[n-1-iy, ix].xaxis.set_visible(False)
                 axes[n-1-iy, ix].yaxis.set_visible(False)
                 axes[n-1-iy, ix].set_title("{}".format(tuple_to_int(grid.grid_xypos[i])))
@@ -2625,7 +2624,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #self.sexdict = pickle.load(open('../ss_lds/sex_PS_swope_ss_lds749b.i.ut180523.0935.pkl','rb'))
 
 
-        self.sexdict = pickle.load(open('../dao_swope/sex_PS_swope{0}.pkl'.format(self.partial_root),'rb'))
+        self.sexdict = pickle.load(open('dao_swope/sex_PS_swope{0}.pkl'.format(self.partial_root),'rb'))
 
         if psfstarlist is not None:
             goodx,goody = np.loadtxt(psfstarlist,unpack=True)
@@ -3042,7 +3041,7 @@ if __name__=='__main__':
     except:
         try:
             dao.gain = pyfits.getval(imagefilename,'EGAIN')
-        except:
+        except RuntimeError:
             raise RuntimeError('Error : GAIN not found in image header!!!')
     try:
         dao.rdnoise = pyfits.getval(imagefilename,'RDNOISE')

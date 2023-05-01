@@ -33,8 +33,8 @@ from astropy.table import QTable
 from astropy.utils import lazyproperty
 import numpy as np
 
-from photutils.detection.base import StarFinderBase
-from photutils.detection._utils import _StarFinderKernel, _find_stars
+from photutils.detection import StarFinderBase
+from photutils.detection.core import _StarFinderKernel
 from photutils.utils._convolution import _filter_data
 from astropy.modeling import Fittable2DModel, Parameter
 from astropy.nddata import NDData
@@ -478,7 +478,7 @@ class dao_DAOStarFinder(StarFinderBase):
                                       check_normalization=False)
 
         if self.xycoords is None:
-            xypos = _find_stars(convolved_data, self.kernel,
+            xypos = self._find_stars(convolved_data, self.kernel,
                                 self.threshold_eff, mask=mask,
                                 exclude_border=self.exclude_border)
         else:
