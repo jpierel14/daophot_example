@@ -473,15 +473,35 @@ def residual_array(self,fittedstars,epsfFitradius,imagefilename, residual_image)
     # xs,ys=np.genfromtxt(fittedstars,unpack=True)
     xs=fittedstars['X']
     ys=fittedstars['Y']
+    qfits = {}
+    cxs = {}
 
     print ("combining residuals for ", len(xs) )
     for i in range(len(xs)):
+        dist = np.inf
+        dists = [np.sqrt((xs[i]-xp)**2+(ys[i]-yp)**2) for xp,yp in self.gridded_epsf.meta['grid_xypos']]
+
+
+
         if imarray is None:
             imarray=extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
             resarray=extract_array(residualarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            if np.argmin(dists) not in qfits.keys():
+                qfits[np.argmin(dists)] = []
+                cxs[np.argmin(dists)] = [] 
+            qfits[np.argmin(dists)].append(np.nansum(np.abs(resarray)/imarray))
+            cxs[np.argmin(dists)].append(imarray[[int(imarray.shape[0]/2)]*2]/resarray[[int(imarray.shape[0]/2)]*2])
         else:    
-            imarray+=extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
-            resarray+=extract_array(residualarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            temp_imarray=extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            temp_resarray=extract_array(residualarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            if np.argmin(dists) not in qfits.keys():
+                qfits[np.argmin(dists)] = []
+                cxs[np.argmin(dists)] = [] 
+            qfits[np.argmin(dists)].append(np.nansum(np.abs(temp_resarray)/temp_imarray))
+            cxs[np.argmin(dists)].append(temp_imarray[[int(temp_imarray.shape[0]/2)]*2]/temp_resarray[[int(temp_imarray.shape[0]/2)]*2])
+
+            imarray+=temp_imarray
+            resarray+=temp_resarray
         # import pickle
         # print (imarray,"imarray")
         # print (datarray,"dataarray")
@@ -498,13 +518,21 @@ def residual_array(self,fittedstars,epsfFitradius,imagefilename, residual_image)
         # plt.savefig('out_dir/combined_im_array{0}_{1}.png'.format(self.root,i))
         # plt.close()
 
-
+    import pickle
+    pickle.dump([qfits,cxs],open('quality.pkl','wb'))
     plt.imshow(imarray)
     plt.savefig('out_dir/combined_im_array{0}.png'.format(self.root))
     plt.close()
     plt.imshow(resarray)
     plt.savefig('out_dir/combined_residual_array{0}.png'.format(self.root))
     plt.close()
+    for grid in qfits.keys():
+        plt.hist(qfits[grid])
+        plt.savefig('qfits_%i'%grid)
+        plt.close()
+        plt.hist(cxs[grid])
+        plt.savefig('cxs_%i'%grid)
+        plt.close()
 
 def display_psf_grid(name,grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     """ Display a PSF grid in a pair of plots
@@ -1796,7 +1824,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             liney1 = []
             liney2 = []
             done = []
-            self.epsfgrid = 'cluster'
+            self.epsfgrid = 'uniform'
             if self.epsfgrid =='uniform' or True:
                 print ('uniform epsf')
                 print (self.image.shape,'self.image.shape')
@@ -1895,6 +1923,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             done = []
             n=0
             m=0
+            grid_labels = np.zeros(len(stars_tbl))
             for i, loc in enumerate(self.location_list):
                 if self.epsfgrid =='uniform' or True:
                     if i%self.length<m:
@@ -1914,6 +1943,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                             to_keep.append(j)
                             done.append(j)
                     temp_star_tbl = stars_tbl[to_keep]
+                    grid_labels[to_keep] = i
                 else:
 
                     meta['grid_xypos'].append(loc)
@@ -2035,7 +2065,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             #plt.imshow(epsf_model.data, norm=norm, origin='lower', cmap='viridis')
             #plt.show()
             
-        return epsf_model,Table({'x_0':all_stars_x,'y_0':all_stars_y}),data_bkgsub,fitted_stars
+        return epsf_model,Table({'x_0':all_stars_x,'y_0':all_stars_y,'grid':grid_labels}),data_bkgsub,fitted_stars
 
 
     def doPhotutilsePSF(self,psfstarlist):
@@ -2178,7 +2208,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         phot = IterativelySubtractedPSFPhotometry(finder=daofind, group_maker=daogroup,
                                               bkg_estimator=mmm_bkg, psf_model=epsf,
                                               fitter=fitter,
-                                              niters=5, fitshape=[int(self.aprad*self.fwhm - 1)]*2, aperture_radius=self.aprad*self.brightfwhm, 
+                                              niters=5, fitshape=[int(2.5*self.fwhm)]*2, aperture_radius=self.aprad*self.brightfwhm, 
                                               extra_output_cols=('sharpness', 'roundness2'))
         result = phot(self.image,init_guesses=pos)
         result.write('test_phot.dat',format='ascii',overwrite=True)
