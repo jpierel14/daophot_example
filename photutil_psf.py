@@ -8,6 +8,7 @@ import numpy as np
 import scipy
 
 import astropy.io.fits as pyfits
+from astropy.nddata.utils import extract_array
 
 import os
 
@@ -164,6 +165,8 @@ def getPS1cat4table (ra,dec):
 
 def frompixtoradec (x,y,fitsfile):
     w = WCS(fitsfile)
+    # print (w)
+    # print (fitsfile)
     ra_wcs=[0]*len(x) #creates a list with x elements
     dec_wcs=[0]*len(x)
     for i in range(len(x)):
@@ -454,6 +457,55 @@ def create_data_for_plot_photutils_aperturephot(file,viziertable,ravizierps1,dec
 
     return (raphot,decphot,mag_phot,magerr)
 
+def residual_array(self,fittedstars,epsfFitradius,imagefilename, residual_image):
+    # datarray=pyfits.getdata('dao_swope/'+imagefilename)
+    (datarray,_)=pyfits.getdata('dao_swope/'+imagefilename,0,header=True)
+    datarray = datarray.astype(float)#/43.
+
+    # residualarray=pyfits.getdata(residual_image)
+    residualarray=residual_image
+
+    imarray=None#np.zeros((int(epsfFitradius),int(epsfFitradius))).astype(float)
+    resarray=None#np.zeros((int(epsfFitradius),int(epsfFitradius))).astype(float)
+
+    indstar=np.zeros((int(epsfFitradius),int(epsfFitradius)))
+
+    # xs,ys=np.genfromtxt(fittedstars,unpack=True)
+    xs=fittedstars['X']
+    ys=fittedstars['Y']
+
+    print ("combining residuals for ", len(xs) )
+    for i in range(len(xs)):
+        if imarray is None:
+            imarray=extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            resarray=extract_array(residualarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+        else:    
+            imarray+=extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+            resarray+=extract_array(residualarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+        # import pickle
+        # print (imarray,"imarray")
+        # print (datarray,"dataarray")
+        # plt.imshow(imarray)
+        # plt.savefig('imarraytest.png')
+        # # sys.exit()
+
+
+        # indstar =extract_array(datarray,(epsfFitradius,epsfFitradius),(ys[i],xs[i]))
+
+        # plt.imshow(indstar)
+        # plt.title('{0}_{1}_{2}'.format(ys[i],xs[i],i))
+
+        # plt.savefig('out_dir/combined_im_array{0}_{1}.png'.format(self.root,i))
+        # plt.close()
+
+
+    plt.imshow(imarray)
+    plt.savefig('out_dir/combined_im_array{0}.png'.format(self.root))
+    plt.close()
+    plt.imshow(resarray)
+    plt.savefig('out_dir/combined_residual_array{0}.png'.format(self.root))
+    plt.close()
+
 def display_psf_grid(name,grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4):
     """ Display a PSF grid in a pair of plots
     Shows the NxN grid in NxN subplots, repeated to show
@@ -523,6 +575,7 @@ def display_psf_grid(name,grid, zoom_in=True, figsize=(14, 12), scale_range=1e-4
     show_grid_helper(grid, diffs, vmax=vmax, vmin=-vmax, scale='linear', title='PSF differences from mean')
     plt.savefig('out_dir/psf_diff_grid{0}.png'.format(name),format='png')
     plt.close()
+
 
 def calc_bkg(data,mask=None,fill_value = 0,var_bkg=False):
     from photutils.background import MMMBackground, MADStdBackgroundRMS,Background2D
@@ -699,7 +752,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                           help='The mask value indicating missing data (e.g., chip gap) (default=%default)')
         parser.add_option('--catmagtransform'  , default=None, type = "str",
                           help='A file providing transformed mags to compare against. (default=%default)')
-        parser.add_option('--doapphotclip'  , default=False, action="store_true",
+        parser.add_option('--doapphotclip'  , default=True, action="store_true",
                           help='Do a sigma clip of stars based on aperture photometry agreement with PS1 (default=%default)')
         parser.add_option('--minStarsPerGridCell'  , default=10, type="int",
                           help='Min number of stars per grid cell. (default=%default)')
@@ -1634,6 +1687,19 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
 
         daofind = dao_DAOStarFinder(threshold=np.median(bkg_rms)*10,fwhm=self.fwhm,xycoords=np.array([stars_tbl['x'],stars_tbl['y']]).T)
         dao_stars = daofind(data_bkgsub)
+
+
+
+        plt.hist(dao_stars['sharpness'])
+        plt.savefig('sharpness.png')
+        plt.close()
+
+        plt.hist(dao_stars['roundness2'])
+        plt.savefig('roundness2.png')
+        plt.close()
+
+                # plt.show()
+
         to_remove_sharp = sigma_clip(dao_stars['sharpness'],sigma=5,maxiters=5)
         to_remove_round = sigma_clip(dao_stars['roundness2'],sigma=5,maxiters=5)
         
@@ -1943,6 +2009,7 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 epsf_model = dao_GriddedPSFModel(NDData(psf_arr, meta=meta))#self.to_model(psf_arr, meta)
             if do_plot:
                 display_psf_grid(self.root,epsf_model)
+
                 # display_psf_grid(epsf_model)
 
             #     plt.show()
@@ -2217,46 +2284,77 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
                 ps1gmagerr=self.catmagtransform_first['d%s'%filt]
                 viziertable = Table([ravizierps1,decvizierps1,ps1gmag,ps1gmagerr],names=['ra_ps1','dec_ps1','PS1_%s'%filt,'PS1_%s_err'%filt])
 
-                raphot,decphot=frompixtoradec(self.aperture_result['X'],self.aperture_result['Y'],imagefilename)
+                raphot,decphot=frompixtoradec(self.aperture_result['X'],self.aperture_result['Y'],'dao_swope/'+imagefilename)
+
+
+                # print (raphot, decphot,ravizierps1,decvizierps1)
 
                 apzpt=calc_zpt(viziertable['PS1_%s'%filt],self.aperture_result['flux'],raphot,decphot,ravizierps1,decvizierps1)
-                print (apzpt)
+                print (apzpt, "ap zpt")
 
                 apmag=-2.5*np.log10(self.aperture_result['flux']).flatten()+apzpt
+                # print (type(apmag))
+                apmag=np.asarray(apmag)
+                # print (apmag)
 
-                boolval,idx,d2d=compare_phot(raphot,decphot,ravizierps1,decvizierps1)
+                brightmagsforcut=np.where((apmag<18) & (apmag>14) )
 
-                apmag = apmag[boolval]
-                ps1gmag=ps1gmag[idx][boolval]
-
-                ap_first_residuals=apmag-ps1gmag
+                # print (brightmagsforcut, len(brightmagsforcut[0]))
 
 
-                # print ("here apphot")
+                # print (self.sexdict['x'][brightmagsforcut])
+                # print (len((self.sexdict['x'][brightmagsforcut])))
 
-                # print (np.sort(ap_first_residuals))
 
-                print (rms(apmag,ps1gmag)[:-1])
 
-                residuals_sc=sigma_clip(ap_first_residuals, sigma=3, maxiters=5,masked=True)
+                ####sigma clipping residuals to PS, removed for now
 
-                print (len(self.sexdict['x'][boolval]),len(residuals_sc),len(~residuals_sc.mask),len(ap_first_residuals))
+                # boolval,idx,d2d=compare_phot(raphot,decphot,ravizierps1,decvizierps1)
+
+                # apmag = apmag[boolval]
+                # ps1gmag=ps1gmag[idx][boolval]
+
+                # ap_first_residuals=apmag-ps1gmag
+
+
+                # # print ("here apphot")
+
+                # # print (np.sort(ap_first_residuals))
+
+                # print (rms(apmag,ps1gmag)[:-1])
+
+                # residuals_sc=sigma_clip(ap_first_residuals, sigma=3, maxiters=5,masked=True)
+
+                # print (len(self.sexdict['x'][boolval]),len(residuals_sc),len(~residuals_sc.mask),len(ap_first_residuals), 
+                #     "len(self.sexdict['x'][boolval]),len(residuals_sc),len(~residuals_sc.mask),len(ap_first_residuals)")
 
                 # print (len(self.sexdict['x'][boolval][~residuals_sc.mask]),len(self.sexdict['x']))
 
-                sources['x_mean']=self.sexdict['x'][boolval][~residuals_sc.mask]
+                # sources['x_mean']=self.sexdict['x'][boolval][~residuals_sc.mask]
 
-                sources['y_mean']=self.sexdict['y'][boolval][~residuals_sc.mask]
+                # sources['y_mean']=self.sexdict['y'][boolval][~residuals_sc.mask]
+
+                # fwhm = np.median(self.sexdict['fwhm_image'][boolval][~residuals_sc.mask])
+
+
+                ####sigma clipping residuals to PS, removed for now
+
+                sources['x_mean']=self.sexdict['x'][brightmagsforcut]
+
+                sources['y_mean']=self.sexdict['y'][brightmagsforcut]
+
+                print (len(sources['x_mean']),"using x sources")
                 
                 #sources = sources[np.where(apmag[~residuals_sc.mask]<19)[0]]
                 #sources['x_mean'] = self.sexdict['x'] #self.unmaskednormalx#  #self.brightx
                 #sources['y_mean'] = self.sexdict['y'] #self.unmaskednormaly#   #self.brighty
                 #sources = sources[np.where(apmag[~residuals_sc.mask]>18)[0]]
-                fwhm = np.median(self.sexdict['fwhm_image'][boolval][~residuals_sc.mask])
+                fwhm = np.median(self.sexdict['fwhm_image'][brightmagsforcut])
                 
             else:
                 sources['x_mean'] = self.sexdict['x']#self.sexdict['x'] #self.unmaskednormalx#  #self.brightx
                 sources['y_mean'] = self.sexdict['y']#self.sexdict['y'] #self.unmaskednormaly#   #self.brighty
+                print ("no aperture photometry cuts")
 
         #sources = sources[5:7]
         #sources.add_row(sources[0])
@@ -2296,7 +2394,12 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         psf_model,fitted_star_locs,im_sub_bk,star_obj = self.build_epsf(size=epsf_size, found_table=sources, oversample=oversample_rate, \
             iters=self.nepsfiters,norm_radius=self.aprad*self.fwhm,npsf=self.epsfgridsize**2,create_grid=self.doepsfgrid) #HERE
                 
-        #print(fitted_star_locs)
+        # print(fitted_star_locs,"fitted locs")
+
+        np.savetxt("fitted_star_locs{0}.txt".format(self.root),fitted_star_locs)
+
+
+
         self.gridded_epsf = psf_model
         pickle.dump(self.gridded_epsf,open('out_dir/%s'%imagefilename.replace('.fits','_gridded_epsf.pkl'),'wb'))
 
@@ -2371,6 +2474,11 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
             print('Including SN for photometry (%f,%f)'%tuple(sn_location))
             fitted_star_locs.add_row({'x_0':sn_location[0],'y_0':sn_location[1]})
 
+
+
+
+
+
             
         self.outputcat_dao = phot(im_sub_bk,init_guesses=fitted_star_locs, #here
             image_weights=1/np.sqrt(self.image_noise))
@@ -2396,6 +2504,27 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         xfit,yfit,fluxfit,fluxerr = np.loadtxt('out_dir/test_phot_dao{0}.dat'.format(self.root),unpack=True,dtype={'names':('x','y','flux','fluxerr'),'formats':(float,float,float,'|S15')},usecols=(0,1,9,10),delimiter=' ',skiprows=1)
         fluxerr=fluxerr.astype('str')  
         dummylist=[0]*len(xfit)
+
+        # savedfittedstarlocs=np.genfromtxt('fitted_star_locs.txt')
+        # residual_array(self,'fitted_star_locs{0}.txt'.format(self.root),self.epsfFitradius,imagefilename,phot.get_residual_image())
+
+        # print (len(fitted_star_locs), print (len(self.outputcat_dao)))
+
+        # import matplotlib.pyplot as plt
+        # distances=[]
+        # for i in range(len(fitted_star_locs)):
+        #     dist=np.sqrt((fitted_star_locs['x_0'][i]-self.outputcat_dao['X'][i])**2+(fitted_star_locs['y_0'][i]-self.outputcat_dao['Y'][i])**2)
+        #     distances.append(dist)
+
+        # plt.hist(distances)
+        # plt.savefig('distances.png')
+        # plt.close()
+
+
+
+        residual_array(self,self.outputcat_dao,self.epsfFitradius,imagefilename,phot.get_residual_image())
+
+
 
 
         fout = open('out_dir/outputcat_dao{0}.dat'.format(self.root),'w')
@@ -2574,6 +2703,10 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         """The main routine.  Loads/creates a PSF model, and
         performs PSF fitting on an input list or SExtractor
         detections."""
+
+
+
+
         method = dao.psfRoutine
         from astropy import wcs
         if self.verbose>1:
@@ -2815,6 +2948,9 @@ nearby an object of interest.  This protects against a spatially varying PSF (de
         #try:
         self.getPSF(psfstarlist,gain=gain,inputpsf=self.inputpsf,outputpsffilename=self.fittedpsffilename,
             starcat=self.forcelist)
+
+
+
         #except:
         #    print('ignoring star cat...')
         #    self.getPSF(psfstarlist,gain=gain,inputpsf=self.inputpsf,outputpsffilename=self.fittedpsffilename)
